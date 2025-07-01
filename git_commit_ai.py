@@ -397,7 +397,7 @@ Generate a commit message that is:
         """Setup the GUI window"""
         self.root = tk.Tk()
         self.root.title("AI Git Commit Message Generator")
-        self.root.geometry("700x650")  # Fixed window size
+        self.root.geometry("700x430")  # Fixed window size
         
         if self.config.getboolean('GUI', 'always_on_top'):
             self.root.attributes('-topmost', True)
@@ -432,8 +432,17 @@ Generate a commit message that is:
         info_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
         info_frame.columnconfigure(1, weight=1)
         
-        self.repo_info_label = ttk.Label(info_frame, text="No repository selected", foreground="gray")
-        self.repo_info_label.grid(row=0, column=0, columnspan=2, sticky=tk.W)
+        # Create a frame for repo info with refresh button
+        repo_info_subframe = ttk.Frame(info_frame)
+        repo_info_subframe.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        
+        self.repo_info_label = ttk.Label(repo_info_subframe, text="No repository selected", foreground="gray")
+        self.repo_info_label.pack(side=tk.LEFT)
+        
+        # Add refresh button with "⟳" as the refresh symbol
+        refresh_button = ttk.Button(repo_info_subframe, text="⟳", width=2,
+                                    command=self.refresh_repo_status)
+        refresh_button.pack(side=tk.LEFT, padx=(5, 0))
         
         # Status label
         self.status_label = ttk.Label(main_frame, text="Ready")
@@ -611,6 +620,15 @@ Generate a commit message that is:
         """Update status label"""
         self.status_label.config(text=message)
         self.root.update_idletasks()
+
+    def refresh_repo_status(self):
+        """Refresh the repository status when refresh button is clicked"""
+        if self.current_repo_path:
+            self.update_status("Refreshing repository status...")
+            self.update_repo_info()
+            self.update_status("Repository status refreshed")
+        else:
+            self.update_status("No repository selected")
 
     def run(self):
         """Start the GUI"""
