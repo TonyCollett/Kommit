@@ -110,8 +110,6 @@ Generate a commit message that is:
 4. Is under 72 characters for the first line'''
             },
             'GUI': {
-                'window_width': '700',
-                'window_height': '650',
                 'always_on_top': 'true'
             }
         }
