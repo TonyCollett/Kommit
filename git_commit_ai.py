@@ -832,12 +832,48 @@ class ConfigWindow:
         self.parent = parent
         self.window = tk.Toplevel(parent.root)
         self.window.title("Configuration")
-        self.window.geometry("800x450")
+        self.window.geometry("800x600")
         self.window.resizable(False, False)  # Prevent resizing
         self.window.transient(parent.root)
         self.window.grab_set()
         
         self.setup_config_gui()
+
+    def on_provider_change(self, event=None):
+        """Update UI based on selected provider"""
+        provider = self.provider_var.get()
+        
+        # Clear any previous package status widgets
+        for widget in self.package_frame.winfo_children():
+            widget.destroy()
+            
+        # Show/hide API key frames based on selected provider
+        self.openai_frame.grid_remove()
+        self.anthropic_frame.grid_remove()
+        self.gemini_frame.grid_remove()
+        
+        # Show only the selected provider's API key input
+        if provider == 'openai':
+            self.openai_frame.grid()
+            # Show package status only if not installed
+            if not OPENAI_AVAILABLE:
+                ttk.Label(self.package_frame, text="OpenAI package not installed").pack(side=tk.LEFT, padx=(0, 10))
+                ttk.Button(self.package_frame, text="Install Package", 
+                          command=self.install_missing_packages).pack(side=tk.LEFT)
+        elif provider == 'anthropic':
+            self.anthropic_frame.grid()
+            # Show package status only if not installed
+            if not ANTHROPIC_AVAILABLE:
+                ttk.Label(self.package_frame, text="Anthropic package not installed").pack(side=tk.LEFT, padx=(0, 10))
+                ttk.Button(self.package_frame, text="Install Package", 
+                          command=self.install_missing_packages).pack(side=tk.LEFT)
+        elif provider == 'gemini':
+            self.gemini_frame.grid()
+            # Show package status only if not installed
+            if not GEMINI_AVAILABLE:
+                ttk.Label(self.package_frame, text="Google Generative AI package not installed").pack(side=tk.LEFT, padx=(0, 10))
+                ttk.Button(self.package_frame, text="Install Package", 
+                          command=self.install_missing_packages).pack(side=tk.LEFT)
 
     def setup_config_gui(self):
         """Setup configuration GUI"""
@@ -854,60 +890,56 @@ class ConfigWindow:
         provider_combo = ttk.Combobox(api_frame, textvariable=self.provider_var, 
                                     values=['openai', 'anthropic', 'gemini'])
         provider_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        provider_combo.bind('<<ComboboxSelected>>', self.on_provider_change)
         
-        # Package installation status
-        package_frame = ttk.Frame(api_frame)
-        package_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        # Package installation status frame (will be populated dynamically)
+        self.package_frame = ttk.Frame(api_frame)
+        self.package_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        openai_status = "✓ Installed" if OPENAI_AVAILABLE else "✗ Not installed"
-        anthropic_status = "✓ Installed" if ANTHROPIC_AVAILABLE else "✗ Not installed"
-        gemini_status = "✓ Installed" if GEMINI_AVAILABLE else "✗ Not installed"
-        
-        ttk.Label(package_frame, text="Package Status:").grid(row=0, column=0, sticky=tk.W)
-        ttk.Label(package_frame, text=f"OpenAI: {openai_status}").grid(row=0, column=1, sticky=tk.W, padx=(10, 5))
-        ttk.Label(package_frame, text=f"Anthropic: {anthropic_status}").grid(row=0, column=2, sticky=tk.W, padx=5)
-        ttk.Label(package_frame, text=f"Gemini: {gemini_status}").grid(row=0, column=3, sticky=tk.W, padx=5)
-        
-        if not (OPENAI_AVAILABLE and ANTHROPIC_AVAILABLE and GEMINI_AVAILABLE):
-            ttk.Button(package_frame, text="Install Packages", 
-                      command=self.install_missing_packages).grid(row=0, column=4, padx=5)
-        
-        # API Keys
-        ttk.Label(api_frame, text="OpenAI API Key:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        # API Key frames (will show/hide based on provider)
+        self.openai_frame = ttk.Frame(api_frame)
+        self.openai_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Label(self.openai_frame, text="OpenAI API Key:").grid(row=0, column=0, sticky=tk.W)
         self.openai_key_var = tk.StringVar(value=self.parent.config.get('API', 'openai_api_key'))
-        ttk.Entry(api_frame, textvariable=self.openai_key_var, show="*", width=50).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(self.openai_frame, textvariable=self.openai_key_var, show="*", width=50).grid(row=0, column=1, sticky=(tk.W, tk.E))
         
-        ttk.Label(api_frame, text="Anthropic API Key:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.anthropic_frame = ttk.Frame(api_frame)
+        self.anthropic_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Label(self.anthropic_frame, text="Anthropic API Key:").grid(row=0, column=0, sticky=tk.W)
         self.anthropic_key_var = tk.StringVar(value=self.parent.config.get('API', 'anthropic_api_key'))
-        ttk.Entry(api_frame, textvariable=self.anthropic_key_var, show="*", width=50).grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(self.anthropic_frame, textvariable=self.anthropic_key_var, show="*", width=50).grid(row=0, column=1, sticky=(tk.W, tk.E))
         
-        ttk.Label(api_frame, text="Gemini API Key:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        self.gemini_frame = ttk.Frame(api_frame)
+        self.gemini_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Label(self.gemini_frame, text="Gemini API Key:").grid(row=0, column=0, sticky=tk.W)
         self.gemini_key_var = tk.StringVar(value=self.parent.config.get('API', 'gemini_api_key'))
-        ttk.Entry(api_frame, textvariable=self.gemini_key_var, show="*", width=50).grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(self.gemini_frame, textvariable=self.gemini_key_var, show="*", width=50).grid(row=0, column=1, sticky=(tk.W, tk.E))
         
-        ttk.Label(api_frame, text="Model:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
+        # Model selection
+        model_frame = ttk.Frame(api_frame)
+        model_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Label(model_frame, text="Model:").grid(row=0, column=0, sticky=tk.W)
         self.model_var = tk.StringVar(value=self.parent.config.get('API', 'model'))
-        ttk.Entry(api_frame, textvariable=self.model_var, width=50).grid(row=5, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(model_frame, textvariable=self.model_var, width=50).grid(row=0, column=1, sticky=(tk.W, tk.E))
         
-        # Model suggestions based on provider
+        # Model suggestions
         model_info = ttk.Label(api_frame, text="Common models: OpenAI: gpt-3.5-turbo, gpt-4 | Anthropic: claude-3-haiku-20240307 | Gemini: gemini-pro", 
                               font=('TkDefaultFont', 8), foreground='gray')
-        model_info.grid(row=6, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+        model_info.grid(row=6, column=0, columnspan=2, sticky=tk.W, padx=5, pady=(2, 10))
         
-        api_frame.columnconfigure(1, weight=1)
+        # Prompt Settings (moved from separate tab to API Settings tab)
+        prompt_settings_frame = ttk.LabelFrame(api_frame, text="Prompt Settings")
+        prompt_settings_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
+        prompt_settings_frame.columnconfigure(0, weight=1)
         
-        # Prompt Configuration Tab
-        prompt_frame = ttk.Frame(notebook)
-        notebook.add(prompt_frame, text="Prompt Settings")
-        
-        ttk.Label(prompt_frame, text="System Prompt:").pack(anchor=tk.W, padx=5, pady=(5, 0))
-        self.system_prompt_text = scrolledtext.ScrolledText(prompt_frame, height=8)
-        self.system_prompt_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(prompt_settings_frame, text="System Prompt:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=(5, 0))
+        self.system_prompt_text = scrolledtext.ScrolledText(prompt_settings_frame, height=6)
+        self.system_prompt_text.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
         self.system_prompt_text.insert(1.0, self.parent.config.get('PROMPT', 'system_prompt'))
         
-        ttk.Label(prompt_frame, text="User Prompt (use {{placeholder}} for variables):").pack(anchor=tk.W, padx=5, pady=(5, 0))
-        self.user_prompt_text = scrolledtext.ScrolledText(prompt_frame, height=8)
-        self.user_prompt_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(prompt_settings_frame, text="User Prompt (use {{placeholder}} for variables):").grid(row=2, column=0, sticky=tk.W, padx=5, pady=(5, 0))
+        self.user_prompt_text = scrolledtext.ScrolledText(prompt_settings_frame, height=6)
+        self.user_prompt_text.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
         self.user_prompt_text.insert(1.0, self.parent.config.get('PROMPT', 'user_prompt'))
         
         # Available placeholders info
@@ -919,7 +951,14 @@ class ConfigWindow:
 {{files_changed}} - List of changed files
 {{git_diff}} - Full git diff of staged changes"""
         
-        ttk.Label(prompt_frame, text=placeholders_info, font=('TkDefaultFont', 8), foreground='gray').pack(anchor=tk.W, padx=5, pady=5)
+        ttk.Label(prompt_settings_frame, text=placeholders_info, font=('TkDefaultFont', 8), foreground='gray').grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        
+        # Configure grid weights for proper expansion
+        api_frame.columnconfigure(1, weight=1)
+        api_frame.rowconfigure(7, weight=1)
+        
+        # Initial UI update based on selected provider
+        self.on_provider_change(None)
         
         # GUI Settings Tab
         gui_frame = ttk.Frame(notebook)
@@ -936,21 +975,22 @@ class ConfigWindow:
         ttk.Button(button_frame, text="Cancel", command=self.window.destroy).pack(side=tk.RIGHT)
 
     def install_missing_packages(self):
-        """Install all missing AI API packages"""
+        """Install missing AI API package for selected provider"""
         missing_packages = []
+        provider = self.provider_var.get()
         
-        if not OPENAI_AVAILABLE:
+        if provider == 'openai' and not OPENAI_AVAILABLE:
             missing_packages.append(('openai', 'OpenAI'))
-        if not ANTHROPIC_AVAILABLE:
+        elif provider == 'anthropic' and not ANTHROPIC_AVAILABLE:
             missing_packages.append(('anthropic', 'Anthropic Claude'))
-        if not GEMINI_AVAILABLE:
+        elif provider == 'gemini' and not GEMINI_AVAILABLE:
             missing_packages.append(('google-generativeai', 'Google Gemini'))
             
         if missing_packages:
             self.parent.offer_package_installation(missing_packages)
             self.window.destroy()
         else:
-            messagebox.showinfo("Packages", "All API packages are already installed.")
+            messagebox.showinfo("Packages", "Selected API package is already installed.")
 
     def save_config(self):
         """Save configuration"""
