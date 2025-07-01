@@ -398,6 +398,7 @@ Generate a commit message that is:
         self.root = tk.Tk()
         self.root.title("AI Git Commit Message Generator")
         self.root.geometry("700x430")  # Fixed window size
+        self.root.resizable(False, False)  # Prevent resizing
         
         if self.config.getboolean('GUI', 'always_on_top'):
             self.root.attributes('-topmost', True)
@@ -682,6 +683,7 @@ class RepositoryManager:
         self.window = tk.Toplevel(parent.root)
         self.window.title("Repository Manager")
         self.window.geometry("600x400")
+        self.window.resizable(False, False)  # Prevent resizing
         self.window.transient(parent.root)
         self.window.grab_set()
         
@@ -832,7 +834,8 @@ class ConfigWindow:
         self.parent = parent
         self.window = tk.Toplevel(parent.root)
         self.window.title("Configuration")
-        self.window.geometry("800x600")
+        self.window.geometry("800x300")
+        self.window.resizable(False, False)  # Prevent resizing
         self.window.transient(parent.root)
         self.window.grab_set()
         
