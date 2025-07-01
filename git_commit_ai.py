@@ -458,8 +458,16 @@ Generate a commit message that is:
                   command=self.configure_clicked).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(buttons_frame, text="Copy to Clipboard", 
                   command=self.copy_clicked).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(buttons_frame, text="Open in Terminal", 
-                  command=self.open_terminal).pack(side=tk.LEFT)
+        
+        # Create dropdown menu button for terminal/explorer actions
+        self.repo_actions_button = ttk.Button(buttons_frame, text="Repository Actions ▼", 
+                                             command=self.show_repo_actions_menu)
+        self.repo_actions_button.pack(side=tk.LEFT)
+        
+        # Create the dropdown menu (but don't show it yet)
+        self.repo_actions_menu = tk.Menu(buttons_frame, tearoff=0)
+        self.repo_actions_menu.add_command(label="Open in Terminal", command=self.open_terminal)
+        self.repo_actions_menu.add_command(label="Open in Explorer", command=self.open_in_explorer)
         
         # Text area for commit message
         self.text_area = scrolledtext.ScrolledText(main_frame, wrap=tk.WORD, height=15)
@@ -569,6 +577,25 @@ Generate a commit message that is:
                 subprocess.run(["xdg-open", self.current_repo_path])
         except Exception as e:
             messagebox.showerror("Error", f"Could not open terminal: {str(e)}")
+            
+    def open_in_explorer(self):
+        """Open repository folder in file explorer"""
+        if not self.current_repo_path:
+            messagebox.showwarning("Warning", "No repository selected")
+            return
+        
+        import platform
+        system = platform.system()
+        
+        try:
+            if system == "Windows":
+                subprocess.run(["explorer", self.current_repo_path])
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", self.current_repo_path])
+            else:  # Linux
+                subprocess.run(["xdg-open", self.current_repo_path])
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open explorer: {str(e)}")
 
     def generate_clicked(self):
         """Handle generate button click"""
@@ -620,6 +647,14 @@ Generate a commit message that is:
         """Update status label"""
         self.status_label.config(text=message)
         self.root.update_idletasks()
+        
+    def show_repo_actions_menu(self, event=None):
+        """Show the repository actions dropdown menu"""
+        # Display the menu below the button
+        button = self.repo_actions_button
+        x = button.winfo_rootx()
+        y = button.winfo_rooty() + button.winfo_height()
+        self.repo_actions_menu.post(x, y)
 
     def refresh_repo_status(self):
         """Refresh the repository status when refresh button is clicked"""
