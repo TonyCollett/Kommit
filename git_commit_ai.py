@@ -832,7 +832,7 @@ class ConfigWindow:
         self.parent = parent
         self.window = tk.Toplevel(parent.root)
         self.window.title("Configuration")
-        self.window.geometry("800x300")
+        self.window.geometry("800x450")
         self.window.resizable(False, False)  # Prevent resizing
         self.window.transient(parent.root)
         self.window.grab_set()
