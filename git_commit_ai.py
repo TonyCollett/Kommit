@@ -843,37 +843,34 @@ class ConfigWindow:
         """Update UI based on selected provider"""
         provider = self.provider_var.get()
         
-        # Clear any previous package status widgets
-        for widget in self.package_frame.winfo_children():
-            widget.destroy()
-            
         # Show/hide API key frames based on selected provider
         self.openai_frame.grid_remove()
         self.anthropic_frame.grid_remove()
         self.gemini_frame.grid_remove()
         
-        # Show only the selected provider's API key input
+        # Reset package status by default
+        self.package_status_label.config(text="")
+        self.package_install_button.grid_remove()
+        
+        # Show only the selected provider's API key input and check package status
         if provider == 'openai':
             self.openai_frame.grid()
             # Show package status only if not installed
             if not OPENAI_AVAILABLE:
-                ttk.Label(self.package_frame, text="OpenAI package not installed").pack(side=tk.LEFT, padx=(0, 10))
-                ttk.Button(self.package_frame, text="Install Package", 
-                          command=self.install_missing_packages).pack(side=tk.LEFT)
+                self.package_status_label.config(text="OpenAI package not installed")
+                self.package_install_button.grid()
         elif provider == 'anthropic':
             self.anthropic_frame.grid()
             # Show package status only if not installed
             if not ANTHROPIC_AVAILABLE:
-                ttk.Label(self.package_frame, text="Anthropic package not installed").pack(side=tk.LEFT, padx=(0, 10))
-                ttk.Button(self.package_frame, text="Install Package", 
-                          command=self.install_missing_packages).pack(side=tk.LEFT)
+                self.package_status_label.config(text="Anthropic package not installed")
+                self.package_install_button.grid()
         elif provider == 'gemini':
             self.gemini_frame.grid()
             # Show package status only if not installed
             if not GEMINI_AVAILABLE:
-                ttk.Label(self.package_frame, text="Google Generative AI package not installed").pack(side=tk.LEFT, padx=(0, 10))
-                ttk.Button(self.package_frame, text="Install Package", 
-                          command=self.install_missing_packages).pack(side=tk.LEFT)
+                self.package_status_label.config(text="Google Generative AI package not installed")
+                self.package_install_button.grid()
 
     def setup_config_gui(self):
         """Setup configuration GUI"""
@@ -884,21 +881,30 @@ class ConfigWindow:
         api_frame = ttk.Frame(notebook)
         notebook.add(api_frame, text="API Settings")
         
-        # Provider selection
-        ttk.Label(api_frame, text="AI Provider:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        # Provider selection with package status message
+        provider_frame = ttk.Frame(api_frame)
+        provider_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        provider_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(provider_frame, text="AI Provider:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.provider_var = tk.StringVar(value=self.parent.config.get('API', 'provider'))
-        provider_combo = ttk.Combobox(api_frame, textvariable=self.provider_var, 
+        provider_combo = ttk.Combobox(provider_frame, textvariable=self.provider_var, 
                                     values=['openai', 'anthropic', 'gemini'])
         provider_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         provider_combo.bind('<<ComboboxSelected>>', self.on_provider_change)
         
-        # Package installation status frame (will be populated dynamically)
-        self.package_frame = ttk.Frame(api_frame)
-        self.package_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        # Package status label and button - will be populated in on_provider_change
+        self.package_status_label = ttk.Label(provider_frame, text="", foreground="#CC0000")
+        self.package_status_label.grid(row=0, column=2, padx=(10, 5), pady=5)
+        
+        self.package_install_button = ttk.Button(provider_frame, text="Install Package", 
+                                              command=self.install_missing_packages)
+        self.package_install_button.grid(row=0, column=3, padx=5, pady=5)
+        self.package_install_button.grid_remove()  # Hide by default
         
         # API Key frames (will show/hide based on provider)
         self.openai_frame = ttk.Frame(api_frame)
-        self.openai_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        self.openai_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
         ttk.Label(self.openai_frame, text="OpenAI API Key:").grid(row=0, column=0, sticky=tk.W)
         self.openai_key_var = tk.StringVar(value=self.parent.config.get('API', 'openai_api_key'))
         ttk.Entry(self.openai_frame, textvariable=self.openai_key_var, show="*", width=50).grid(row=0, column=1, sticky=(tk.W, tk.E))
@@ -987,8 +993,10 @@ class ConfigWindow:
             missing_packages.append(('google-generativeai', 'Google Gemini'))
             
         if missing_packages:
-            self.parent.offer_package_installation(missing_packages)
-            self.window.destroy()
+            if messagebox.askyesno("Missing Package", 
+                                 f"The {missing_packages[0][1]} package is required but not installed.\n\nWould you like to install it now?"):
+                self.parent.offer_package_installation(missing_packages)
+                self.window.destroy()
         else:
             messagebox.showinfo("Packages", "Selected API package is already installed.")
 
