@@ -16,6 +16,7 @@ from pathlib import Path
 import configparser
 import sys
 import importlib.util
+import platform
 
 # Check API client packages
 def is_package_installed(package_name):
@@ -566,13 +567,10 @@ Generate a commit message that is:
             messagebox.showwarning("Warning", "No repository selected")
             return
         
-        import platform
-        system = platform.system()
-        
         try:
-            if system == "Windows":
-                os.startfile(self.current_repo_path)
-            elif system == "Darwin":  # macOS
+            if platform.system() == "Windows":
+                subprocess.run(["start", "powershell"], cwd=self.current_repo_path, shell=True)
+            elif platform.system() == "Darwin":  # macOS
                 subprocess.run(["open", "-a", "Terminal", self.current_repo_path])
             else:  # Linux
                 subprocess.run(["xdg-open", self.current_repo_path])
