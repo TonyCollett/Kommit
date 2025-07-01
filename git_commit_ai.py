@@ -14,25 +14,44 @@ import threading
 from datetime import datetime
 from pathlib import Path
 import configparser
+import sys
+import importlib.util
+
+# Check API client packages
+def is_package_installed(package_name):
+    """Check if a Python package is installed"""
+    try:
+        # For packages with dots, try importing directly
+        # For Google's package, we need to use the import name, not the pip name
+        pkg_to_check = package_name
+        if package_name == 'google.generativeai':
+            # First check if the parent module exists
+            try:
+                __import__('google')
+            except ImportError:
+                return False
+        
+        # Try to import the package
+        __import__(pkg_to_check)
+        return True
+    except (ImportError, ModuleNotFoundError):
+        return False
 
 # API clients
-try:
+OPENAI_AVAILABLE = is_package_installed('openai')
+ANTHROPIC_AVAILABLE = is_package_installed('anthropic')
+# For Google's package, pip install name is 'google-generativeai' but import name is 'google.generativeai'
+GEMINI_AVAILABLE = is_package_installed('google.generativeai')
+
+# Import available clients
+if OPENAI_AVAILABLE:
     import openai
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
 
-try:
+if ANTHROPIC_AVAILABLE:
     from anthropic import Anthropic
-    ANTHROPIC_AVAILABLE = True
-except ImportError:
-    ANTHROPIC_AVAILABLE = False
 
-try:
+if GEMINI_AVAILABLE:
     import google.generativeai as genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
 
 
 class GitCommitAI:
@@ -40,6 +59,7 @@ class GitCommitAI:
         self.config_file = Path.home() / '.git_commit_ai_config.ini'
         self.config = configparser.ConfigParser()
         self.current_repo_path = None
+        self.restart_needed = False
         self.load_config()
         
         # Initialize API clients
@@ -47,8 +67,12 @@ class GitCommitAI:
         self.anthropic_client = None
         self.gemini_model = None
         
-        self.setup_api_clients()
+        # Create GUI before checking packages (needed for message boxes)
         self.setup_gui()
+        
+        # Check required packages based on configured provider
+        self.check_required_packages()
+        self.setup_api_clients()
         self.refresh_repositories()
 
     def load_config(self):
@@ -146,6 +170,89 @@ Generate a commit message that is:
                 valid_repos.append(path)
         return valid_repos
 
+    def check_required_packages(self):
+        """Check if required packages are installed based on selected provider and offer installation"""
+        provider = self.config.get('API', 'provider')
+        missing_packages = []
+        
+        if provider == 'openai' and not OPENAI_AVAILABLE:
+            missing_packages.append(('openai', 'OpenAI'))
+        elif provider == 'anthropic' and not ANTHROPIC_AVAILABLE:
+            missing_packages.append(('anthropic', 'Anthropic Claude'))
+        elif provider == 'gemini' and not GEMINI_AVAILABLE:
+            missing_packages.append(('google-generativeai', 'Google Gemini'))
+            
+        if missing_packages:
+            self.offer_package_installation(missing_packages)
+    
+    def offer_package_installation(self, missing_packages):
+        """Offer to install missing packages"""
+        package_list = ", ".join([f"{name}" for pkg, name in missing_packages])
+        message = f"The following packages are required but not installed: {package_list}\n\nWould you like to install them now?"
+        
+        if messagebox.askyesno("Missing Packages", message):
+            self.install_packages(missing_packages)
+    
+    def install_packages(self, packages):
+        """Install Python packages"""
+        try:
+            # Create a progress window
+            progress_window = tk.Toplevel(self.root)
+            progress_window.title("Installing Packages")
+            progress_window.geometry("400x150")
+            progress_window.transient(self.root)
+            progress_window.grab_set()
+            
+            # Add progress information
+            info_label = ttk.Label(progress_window, text="Installing required packages. This may take a moment...")
+            info_label.pack(pady=(20, 10))
+            
+            progress_bar = ttk.Progressbar(progress_window, mode='indeterminate')
+            progress_bar.pack(fill=tk.X, padx=20, pady=10)
+            progress_bar.start()
+            
+            status_label = ttk.Label(progress_window, text="")
+            status_label.pack(pady=10)
+            
+            # Update function for background thread
+            def update_status(text):
+                status_label.config(text=text)
+                progress_window.update_idletasks()
+            
+            def install_thread():
+                success = True
+                failed_packages = []
+                
+                for pkg_name, display_name in packages:
+                    try:
+                        update_status(f"Installing {display_name} package...")
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_name])
+                    except Exception as e:
+                        success = False
+                        failed_packages.append(display_name)
+                
+                # Close progress window
+                progress_window.after(500, progress_window.destroy)
+                
+                # Show result
+                if success:
+                    messagebox.showinfo("Installation Complete", 
+                                      "Packages installed successfully.\nPlease restart the application to use the new packages.")
+                else:
+                    failed_list = ", ".join(failed_packages)
+                    messagebox.showerror("Installation Failed", 
+                                       f"Failed to install: {failed_list}\n\nPlease install manually using pip.")
+                
+                # Set restart flag
+                self.restart_needed = True
+            
+            # Start installation in background thread
+            self.restart_needed = False
+            threading.Thread(target=install_thread, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to install packages: {str(e)}")
+            
     def setup_api_clients(self):
         """Initialize API clients based on configuration"""
         provider = self.config.get('API', 'provider')
@@ -250,6 +357,9 @@ Generate a commit message that is:
 
     def generate_openai(self, system_prompt, user_prompt):
         """Generate using OpenAI API"""
+        if not OPENAI_AVAILABLE:
+            raise Exception("OpenAI package not installed. Please install it first.")
+            
         model = self.config.get('API', 'model', fallback='gpt-3.5-turbo')
         response = self.openai_client.chat.completions.create(
             model=model,
@@ -264,6 +374,9 @@ Generate a commit message that is:
 
     def generate_anthropic(self, system_prompt, user_prompt):
         """Generate using Anthropic API"""
+        if not ANTHROPIC_AVAILABLE:
+            raise Exception("Anthropic package not installed. Please install it first.")
+            
         model = self.config.get('API', 'model', fallback='claude-3-haiku-20240307')
         response = self.anthropic_client.messages.create(
             model=model,
@@ -275,6 +388,9 @@ Generate a commit message that is:
 
     def generate_gemini(self, system_prompt, user_prompt):
         """Generate using Gemini API"""
+        if not GEMINI_AVAILABLE:
+            raise Exception("Google Generative AI package not installed. Please install it first.")
+            
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         response = self.gemini_model.generate_content(full_prompt)
         return response.text.strip()
@@ -369,6 +485,9 @@ Generate a commit message that is:
             self.current_repo_path = None
             self.repo_var.set("")
             self.update_repo_info()
+            
+        # Update API status
+        self.update_api_status()
 
     def on_repo_selected(self, event=None):
         """Handle repository selection"""
@@ -407,6 +526,19 @@ Generate a commit message that is:
             
         except Exception as e:
             self.repo_info_label.config(text=f"Error reading repository: {str(e)}", foreground="red")
+    
+    def update_api_status(self):
+        """Update the API status in the UI"""
+        provider = self.config.get('API', 'provider')
+        
+        if provider == 'openai' and not OPENAI_AVAILABLE:
+            self.status_label.config(text="Warning: OpenAI package not installed", foreground="orange")
+        elif provider == 'anthropic' and not ANTHROPIC_AVAILABLE:
+            self.status_label.config(text="Warning: Anthropic package not installed", foreground="orange")
+        elif provider == 'gemini' and not GEMINI_AVAILABLE:
+            self.status_label.config(text="Warning: Google Generative AI package not installed", foreground="orange")
+        else:
+            self.status_label.config(text="Ready", foreground="black")
 
     def manage_repositories(self):
         """Open repository management window"""
@@ -484,7 +616,13 @@ Generate a commit message that is:
 
     def run(self):
         """Start the GUI"""
-        self.root.mainloop()
+        # Check if we need to restart after package installation
+        if self.restart_needed:
+            self.root.destroy()
+            python = sys.executable
+            os.execl(python, python, *sys.argv)
+        else:
+            self.root.mainloop()
 
 
 class RepositoryManager:
@@ -665,27 +803,44 @@ class ConfigWindow:
                                     values=['openai', 'anthropic', 'gemini'])
         provider_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
+        # Package installation status
+        package_frame = ttk.Frame(api_frame)
+        package_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
+        
+        openai_status = "✓ Installed" if OPENAI_AVAILABLE else "✗ Not installed"
+        anthropic_status = "✓ Installed" if ANTHROPIC_AVAILABLE else "✗ Not installed"
+        gemini_status = "✓ Installed" if GEMINI_AVAILABLE else "✗ Not installed"
+        
+        ttk.Label(package_frame, text="Package Status:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(package_frame, text=f"OpenAI: {openai_status}").grid(row=0, column=1, sticky=tk.W, padx=(10, 5))
+        ttk.Label(package_frame, text=f"Anthropic: {anthropic_status}").grid(row=0, column=2, sticky=tk.W, padx=5)
+        ttk.Label(package_frame, text=f"Gemini: {gemini_status}").grid(row=0, column=3, sticky=tk.W, padx=5)
+        
+        if not (OPENAI_AVAILABLE and ANTHROPIC_AVAILABLE and GEMINI_AVAILABLE):
+            ttk.Button(package_frame, text="Install Packages", 
+                      command=self.install_missing_packages).grid(row=0, column=4, padx=5)
+        
         # API Keys
-        ttk.Label(api_frame, text="OpenAI API Key:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(api_frame, text="OpenAI API Key:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         self.openai_key_var = tk.StringVar(value=self.parent.config.get('API', 'openai_api_key'))
-        ttk.Entry(api_frame, textvariable=self.openai_key_var, show="*", width=50).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(api_frame, textvariable=self.openai_key_var, show="*", width=50).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        ttk.Label(api_frame, text="Anthropic API Key:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(api_frame, text="Anthropic API Key:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
         self.anthropic_key_var = tk.StringVar(value=self.parent.config.get('API', 'anthropic_api_key'))
-        ttk.Entry(api_frame, textvariable=self.anthropic_key_var, show="*", width=50).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(api_frame, textvariable=self.anthropic_key_var, show="*", width=50).grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        ttk.Label(api_frame, text="Gemini API Key:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(api_frame, text="Gemini API Key:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
         self.gemini_key_var = tk.StringVar(value=self.parent.config.get('API', 'gemini_api_key'))
-        ttk.Entry(api_frame, textvariable=self.gemini_key_var, show="*", width=50).grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(api_frame, textvariable=self.gemini_key_var, show="*", width=50).grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        ttk.Label(api_frame, text="Model:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(api_frame, text="Model:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
         self.model_var = tk.StringVar(value=self.parent.config.get('API', 'model'))
-        ttk.Entry(api_frame, textvariable=self.model_var, width=50).grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(api_frame, textvariable=self.model_var, width=50).grid(row=5, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
         # Model suggestions based on provider
         model_info = ttk.Label(api_frame, text="Common models: OpenAI: gpt-3.5-turbo, gpt-4 | Anthropic: claude-3-haiku-20240307 | Gemini: gemini-pro", 
                               font=('TkDefaultFont', 8), foreground='gray')
-        model_info.grid(row=5, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+        model_info.grid(row=6, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
         
         api_frame.columnconfigure(1, weight=1)
         
@@ -736,10 +891,32 @@ class ConfigWindow:
         ttk.Button(button_frame, text="Save", command=self.save_config).pack(side=tk.RIGHT, padx=(5, 0))
         ttk.Button(button_frame, text="Cancel", command=self.window.destroy).pack(side=tk.RIGHT)
 
+    def install_missing_packages(self):
+        """Install all missing AI API packages"""
+        missing_packages = []
+        
+        if not OPENAI_AVAILABLE:
+            missing_packages.append(('openai', 'OpenAI'))
+        if not ANTHROPIC_AVAILABLE:
+            missing_packages.append(('anthropic', 'Anthropic Claude'))
+        if not GEMINI_AVAILABLE:
+            missing_packages.append(('google-generativeai', 'Google Gemini'))
+            
+        if missing_packages:
+            self.parent.offer_package_installation(missing_packages)
+            self.window.destroy()
+        else:
+            messagebox.showinfo("Packages", "All API packages are already installed.")
+
     def save_config(self):
         """Save configuration"""
+        # Check if provider changed
+        old_provider = self.parent.config.get('API', 'provider')
+        new_provider = self.provider_var.get()
+        provider_changed = old_provider != new_provider
+        
         # Update config
-        self.parent.config.set('API', 'provider', self.provider_var.get())
+        self.parent.config.set('API', 'provider', new_provider)
         self.parent.config.set('API', 'openai_api_key', self.openai_key_var.get())
         self.parent.config.set('API', 'anthropic_api_key', self.anthropic_key_var.get())
         self.parent.config.set('API', 'gemini_api_key', self.gemini_key_var.get())
@@ -756,8 +933,13 @@ class ConfigWindow:
         # Reinitialize API clients
         self.parent.setup_api_clients()
         
-        messagebox.showinfo("Success", "Configuration saved successfully!\nRestart the application for GUI changes to take effect.")
-        self.window.destroy()
+        # Check required packages if provider changed
+        if provider_changed:
+            self.window.destroy()
+            self.parent.check_required_packages()
+        else:
+            messagebox.showinfo("Success", "Configuration saved successfully!\nRestart the application for GUI changes to take effect.")
+            self.window.destroy()
 
 
 if __name__ == "__main__":

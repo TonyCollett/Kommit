@@ -1,0 +1,11 @@
+# GitCommitAI Requirements
+# These packages are optional but required for specific AI providers
+
+# OpenAI API
+openai>=1.0.0
+
+# Anthropic Claude API
+anthropic>=0.7.0
+
+# Google Gemini API
+google-generativeai>=0.3.0
