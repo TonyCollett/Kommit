@@ -111,7 +111,7 @@ Generate a commit message that is:
             },
             'GUI': {
                 'window_width': '700',
-                'window_height': '500',
+                'window_height': '650',
                 'always_on_top': 'true'
             }
         }
@@ -399,7 +399,7 @@ Generate a commit message that is:
         """Setup the GUI window"""
         self.root = tk.Tk()
         self.root.title("AI Git Commit Message Generator")
-        self.root.geometry(f"{self.config.get('GUI', 'window_width')}x{self.config.get('GUI', 'window_height')}")
+        self.root.geometry("700x650")  # Fixed window size
         
         if self.config.getboolean('GUI', 'always_on_top'):
             self.root.attributes('-topmost', True)
@@ -873,16 +873,8 @@ class ConfigWindow:
         gui_frame = ttk.Frame(notebook)
         notebook.add(gui_frame, text="GUI Settings")
         
-        ttk.Label(gui_frame, text="Window Width:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.width_var = tk.StringVar(value=self.parent.config.get('GUI', 'window_width'))
-        ttk.Entry(gui_frame, textvariable=self.width_var, width=10).grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
-        
-        ttk.Label(gui_frame, text="Window Height:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.height_var = tk.StringVar(value=self.parent.config.get('GUI', 'window_height'))
-        ttk.Entry(gui_frame, textvariable=self.height_var, width=10).grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
-        
         self.always_on_top_var = tk.BooleanVar(value=self.parent.config.getboolean('GUI', 'always_on_top'))
-        ttk.Checkbutton(gui_frame, text="Always on top", variable=self.always_on_top_var).grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Checkbutton(gui_frame, text="Always on top", variable=self.always_on_top_var).grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         
         # Buttons
         button_frame = ttk.Frame(self.window)
@@ -923,8 +915,6 @@ class ConfigWindow:
         self.parent.config.set('API', 'model', self.model_var.get())
         self.parent.config.set('PROMPT', 'system_prompt', self.system_prompt_text.get(1.0, tk.END).strip())
         self.parent.config.set('PROMPT', 'user_prompt', self.user_prompt_text.get(1.0, tk.END).strip())
-        self.parent.config.set('GUI', 'window_width', self.width_var.get())
-        self.parent.config.set('GUI', 'window_height', self.height_var.get())
         self.parent.config.set('GUI', 'always_on_top', str(self.always_on_top_var.get()))
         
         # Save to file
