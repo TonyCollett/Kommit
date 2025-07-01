@@ -523,6 +523,11 @@ Generate a commit message that is:
             self.repo_info_label.config(text="No repository selected", foreground="gray")
             return
         
+        # Check if the repository path still exists
+        if not os.path.exists(self.current_repo_path):
+            self.repo_info_label.config(text="Repository not found", foreground="red")
+            return
+        
         try:
             # Get branch info
             branch_result = subprocess.run(['git', 'branch', '--show-current'], 
@@ -535,8 +540,29 @@ Generate a commit message that is:
                                          cwd=self.current_repo_path,
                                          capture_output=True, text=True, check=True)
             status_lines = status_result.stdout.strip().split('\n') if status_result.stdout.strip() else []
-            staged_count = len([line for line in status_lines if line and line[0] in 'AMDR'])
-            unstaged_count = len([line for line in status_lines if line and line[1] in 'AMD'])
+            
+            # In git status --porcelain output:
+            # First column: index/staging area status (M=modified, A=added, D=deleted, R=renamed, C=copied)
+            # Second column: working tree status (M=modified, A=added, D=deleted)
+            # Untracked files are represented with "??" in the output
+            
+            staged_count = 0
+            unstaged_count = 0
+            
+            for line in status_lines:
+                if not line:  # Skip empty lines
+                    continue
+                    
+                if line.startswith('??'):  # Untracked files
+                    unstaged_count += 1
+                else:
+                    # Count staged changes (first column)
+                    if line[0] in 'MADRC':
+                        staged_count += 1
+                    
+                    # Count unstaged changes (second column)
+                    if line[1] in 'MAD':
+                        unstaged_count += 1
             
             info_text = f"Branch: {branch} | Staged: {staged_count} | Unstaged: {unstaged_count}"
             self.repo_info_label.config(text=info_text, foreground="black")
