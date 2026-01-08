@@ -1350,6 +1350,10 @@ class ConfigWindow:
             self.window.destroy()
 
 
-if __name__ == "__main__":
+def main():
     app = GitCommitAI()
     app.run()
+
+
+if __name__ == "__main__":
+    main()
