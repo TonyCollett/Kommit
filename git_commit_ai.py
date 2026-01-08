@@ -23,11 +23,8 @@ import platform
 def is_package_installed(package_name):
     """Check if a Python package is installed"""
     try:
-        # For packages with dots, try importing directly
-        # For Google's package, we need to use the import name, not the pip name
         pkg_to_check = package_name
-        if package_name == "google.generativeai":
-            # First check if the parent module exists
+        if package_name == "google.genai":
             try:
                 __import__("google")
             except ImportError:
@@ -43,8 +40,7 @@ def is_package_installed(package_name):
 # API clients
 OPENAI_AVAILABLE = is_package_installed("openai")
 ANTHROPIC_AVAILABLE = is_package_installed("anthropic")
-# For Google's package, pip install name is 'google-generativeai' but import name is 'google.generativeai'
-GEMINI_AVAILABLE = is_package_installed("google.generativeai")
+GEMINI_AVAILABLE = is_package_installed("google.genai")
 
 # Import available clients
 if OPENAI_AVAILABLE:
@@ -54,7 +50,7 @@ if ANTHROPIC_AVAILABLE:
     from anthropic import Anthropic
 
 if GEMINI_AVAILABLE:
-    import google.generativeai as genai
+    import google.genai as genai
 
 
 class GitCommitAI:
@@ -68,7 +64,7 @@ class GitCommitAI:
         # Initialize API clients
         self.openai_client = None
         self.anthropic_client = None
-        self.gemini_model = None
+        self.gemini_client = None
 
         # Create GUI before checking packages (needed for message boxes)
         self.setup_gui()
@@ -86,7 +82,7 @@ class GitCommitAI:
                 "openai_api_key": "",
                 "anthropic_api_key": "",
                 "gemini_api_key": "",
-                "model": "gpt-3.5-turbo",  # or claude-3-sonnet-20240229, gemini-pro
+                "model": "gpt-4.1-mini",  # or claude-3-sonnet-20240229, gemini-pro
             },
             "REPOSITORIES": {
                 "paths": "",  # JSON string of repository paths
@@ -279,9 +275,7 @@ Generate a commit message that is:
         elif provider == "gemini" and GEMINI_AVAILABLE:
             api_key = self.config.get("API", "gemini_api_key")
             if api_key:
-                genai.configure(api_key=api_key)
-                model_name = self.config.get("API", "model", fallback="gemini-pro")
-                self.gemini_model = genai.GenerativeModel(model_name)
+                self.gemini_client = genai.Client(api_key=api_key)
 
     def get_git_info(self):
         """Get git repository information"""
@@ -386,7 +380,7 @@ Generate a commit message that is:
                 return self.generate_openai(system_prompt, user_prompt)
             elif provider == "anthropic" and self.anthropic_client:
                 return self.generate_anthropic(system_prompt, user_prompt)
-            elif provider == "gemini" and self.gemini_model:
+            elif provider == "gemini" and self.gemini_client:
                 return self.generate_gemini(system_prompt, user_prompt)
             else:
                 raise Exception(
@@ -478,7 +472,10 @@ Generate a commit message that is:
             )
 
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
-        response = self.gemini_model.generate_content(full_prompt)
+        model_name = self.config.get("API", "model", fallback="gemini-1.5-flash")
+        response = self.gemini_client.models.generate_content(
+            model=model_name, contents=full_prompt
+        )
         return response.text.strip()
 
     def setup_gui(self):
@@ -1046,7 +1043,7 @@ class ConfigWindow:
         self.parent = parent
         self.window = tk.Toplevel(parent.root)
         self.window.title("Configuration")
-        self.window.geometry("800x600")
+        self.window.geometry("800x640")
         self.window.resizable(False, False)  # Prevent resizing
         self.window.transient(parent.root)
         self.window.grab_set()

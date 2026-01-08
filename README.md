@@ -1,5 +1,8 @@
 # GitCommitAI
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+
 An AI-powered Git Commit Message Generator with Multi-Repository Support that works with OpenAI, Anthropic Claude, and Google Gemini APIs.
 
 ## Features
@@ -12,7 +15,7 @@ An AI-powered Git Commit Message Generator with Multi-Repository Support that wo
 
 ## Requirements
 
-- Python 3.6+
+- Python 3.8+
 - Git
 
 ## Installation
@@ -63,6 +66,16 @@ Click the "Configure" button to set up:
 - System and user prompts
 - UI settings
 
+## Troubleshooting
+
+- Ensure your API keys are correctly configured
+- Check that required packages are installed
+- Make sure you have staged changes in your Git repository
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute.
+
 ## License
 
-MIT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
