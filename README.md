@@ -5,6 +5,8 @@
 
 An AI-powered Git Commit Message Generator with Multi-Repository Support that works with OpenAI, Anthropic Claude, and Google Gemini APIs.
 
+**Note:** This tool is designed to be used alongside other Git clients or the Git CLI. It does not replace a full Git client but provides enhanced commit message generation capabilities.
+
 ## Features
 
 - Generate meaningful commit messages based on staged changes
@@ -37,7 +39,7 @@ pip install openai
 pip install anthropic
 
 # For Google Gemini support
-pip install google-generativeai
+pip install google-genai
 ```
 
 You can also install packages directly from the app's configuration interface.
