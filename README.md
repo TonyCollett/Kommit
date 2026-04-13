@@ -12,6 +12,8 @@ An AI-powered Git Commit Message Generator with Multi-Repository Support that wo
 - Generate meaningful commit messages based on staged changes
 - Support for multiple AI providers (OpenAI, Anthropic Claude, Google Gemini)
 - Multi-repository management
+- Built-in changes dialog with staged/unstaged diff preview
+- Commit action button for commit, commit and push, or commit and sync workflows
 - Configurable prompts
 - User-friendly GUI interface
 
@@ -54,10 +56,26 @@ python git_commit_ai.py
 
 1. Add your repositories via the "Manage Repos" button
 2. Select a repository from the dropdown
-3. Configure your API keys in the Configuration dialog
-4. Click "Generate Commit Message" to analyze staged changes and create a commit message
-5. Use "Copy to Clipboard" to copy the message for use in your terminal
-6. Or click "Open in Terminal" to open a terminal in your repository directory
+3. Click "Changes" to open the diff viewer and inspect changed files
+4. In the diff viewer, select one or more files to preview their diffs, then use "Stage Selected", "Unstage Selected", or "Discard Unstaged" as needed
+5. Configure your API keys in the Configuration dialog
+6. Click "Generate Commit Message" to analyze the currently staged changes and create a commit message
+7. Use the "Commit Staged Files" button to run the commit directly from the app, or open its dropdown to choose "Commit and Push" or "Commit and Sync"
+8. Use "Copy to Clipboard" to copy the message for use in your terminal
+9. Or click "Open in Terminal" to open a terminal in your repository directory
+
+### Diff Viewer
+
+- Open the viewer with the "Changes" button beside the selected repository
+- Review staged, unstaged, and new files in one list
+- Select multiple files with Ctrl or Shift to preview combined diffs
+- Use the viewer to prepare the exact staged set before generating a commit message
+
+### Commit Button
+
+- The commit action button stays disabled until a commit message has been generated
+- Click the main button to commit the current staged files with the generated message
+- Use the dropdown arrow to switch to "Commit and Push" or "Commit and Sync" when you want the app to continue with remote operations after committing
 
 ## Configuration
 
