@@ -37,10 +37,10 @@ def is_package_installed(package_name):
         return False
 
 
-# API clients
 OPENAI_AVAILABLE = is_package_installed("openai")
 ANTHROPIC_AVAILABLE = is_package_installed("anthropic")
 GEMINI_AVAILABLE = is_package_installed("google.genai")
+OLLAMA_AVAILABLE = is_package_installed("ollama")
 
 # Import available clients
 if OPENAI_AVAILABLE:
@@ -51,6 +51,10 @@ if ANTHROPIC_AVAILABLE:
 
 if GEMINI_AVAILABLE:
     import google.genai as genai
+
+if OLLAMA_AVAILABLE:
+    from ollama import Client as OllamaClient
+
 
 
 class GitCommitAI:
@@ -65,6 +69,7 @@ class GitCommitAI:
         self.openai_client = None
         self.anthropic_client = None
         self.gemini_client = None
+        self.ollama_client = None
 
         # Create GUI before checking packages (needed for message boxes)
         self.setup_gui()
@@ -78,11 +83,12 @@ class GitCommitAI:
         """Load configuration from file or create default"""
         default_config = {
             "API": {
-                "provider": "openai",  # openai, anthropic, or gemini
+                "provider": "openai",  # openai, anthropic, gemini, or ollama
                 "openai_api_key": "",
                 "anthropic_api_key": "",
                 "gemini_api_key": "",
-                "model": "gpt-4.1-mini",  # or claude-3-sonnet-20240229, gemini-pro
+                "ollama_host": "http://localhost:11434",
+                "model": "gpt-4.1-mini",  # or claude-3-sonnet-20240229, gemini-pro, llama3
             },
             "REPOSITORIES": {
                 "paths": "",  # JSON string of repository paths
@@ -177,6 +183,8 @@ Generate a commit message that is:
             missing_packages.append(("anthropic", "Anthropic Claude"))
         elif provider == "gemini" and not GEMINI_AVAILABLE:
             missing_packages.append(("google-generativeai", "Google Gemini"))
+        elif provider == "ollama" and not OLLAMA_AVAILABLE:
+            missing_packages.append(("ollama", "Ollama"))
 
         if missing_packages:
             self.offer_package_installation(missing_packages)
@@ -276,6 +284,10 @@ Generate a commit message that is:
             api_key = self.config.get("API", "gemini_api_key")
             if api_key:
                 self.gemini_client = genai.Client(api_key=api_key)
+
+        elif provider == "ollama" and OLLAMA_AVAILABLE:
+            host = self.config.get("API", "ollama_host", fallback="http://localhost:11434")
+            self.ollama_client = OllamaClient(host=host)
 
     def get_git_info(self):
         """Get git repository information"""
@@ -382,6 +394,8 @@ Generate a commit message that is:
                 return self.generate_anthropic(system_prompt, user_prompt)
             elif provider == "gemini" and self.gemini_client:
                 return self.generate_gemini(system_prompt, user_prompt)
+            elif provider == "ollama" and self.ollama_client:
+                return self.generate_ollama(system_prompt, user_prompt)
             else:
                 raise Exception(
                     f"Provider '{provider}' not available or not configured"
@@ -477,6 +491,24 @@ Generate a commit message that is:
             model=model_name, contents=full_prompt
         )
         return response.text.strip()
+
+    def generate_ollama(self, system_prompt, user_prompt):
+        """Generate using Ollama API"""
+        if not OLLAMA_AVAILABLE:
+            raise Exception("Ollama package not installed. Please install it first.")
+
+        model = self.config.get("API", "model", fallback="llama3")
+        try:
+            response = self.ollama_client.chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            return response['message']['content'].strip()
+        except Exception as e:
+            raise Exception(f"Ollama generation failed: {e}")
 
     def setup_gui(self):
         """Setup the GUI window"""
@@ -716,6 +748,10 @@ Generate a commit message that is:
             self.status_label.config(
                 text="Warning: Google Generative AI package not installed",
                 foreground="orange",
+            )
+        elif provider == "ollama" and not OLLAMA_AVAILABLE:
+            self.status_label.config(
+                text="Warning: Ollama package not installed", foreground="orange"
             )
         else:
             self.status_label.config(text="Ready", foreground="black")
@@ -1058,6 +1094,7 @@ class ConfigWindow:
         self.openai_frame.grid_remove()
         self.anthropic_frame.grid_remove()
         self.gemini_frame.grid_remove()
+        self.ollama_frame.grid_remove()
 
         # Reset package status by default
         self.package_status_label.config(text="")
@@ -1082,6 +1119,14 @@ class ConfigWindow:
             if not GEMINI_AVAILABLE:
                 self.package_status_label.config(
                     text="Google Generative AI package not installed"
+                )
+                self.package_install_button.grid()
+        elif provider == "ollama":
+            self.ollama_frame.grid()
+            # Show package status only if not installed
+            if not OLLAMA_AVAILABLE:
+                self.package_status_label.config(
+                    text="Ollama package not installed"
                 )
                 self.package_install_button.grid()
 
@@ -1114,7 +1159,7 @@ class ConfigWindow:
         provider_combo = ttk.Combobox(
             provider_frame,
             textvariable=self.provider_var,
-            values=["openai", "anthropic", "gemini"],
+            values=["openai", "anthropic", "gemini", "ollama"],
         )
         provider_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         provider_combo.bind("<<ComboboxSelected>>", self.on_provider_change)
@@ -1179,6 +1224,20 @@ class ConfigWindow:
             self.gemini_frame, textvariable=self.gemini_key_var, show="*", width=50
         ).grid(row=0, column=1, sticky=(tk.W, tk.E))
 
+        self.ollama_frame = ttk.Frame(api_frame)
+        self.ollama_frame.grid(
+            row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5
+        )
+        ttk.Label(self.ollama_frame, text="Ollama Host URL:").grid(
+            row=0, column=0, sticky=tk.W
+        )
+        self.ollama_host_var = tk.StringVar(
+            value=self.parent.config.get("API", "ollama_host", fallback="http://localhost:11434")
+        )
+        ttk.Entry(
+            self.ollama_frame, textvariable=self.ollama_host_var, width=50
+        ).grid(row=0, column=1, sticky=(tk.W, tk.E))
+
         # Model selection
         model_frame = ttk.Frame(api_frame)
         model_frame.grid(
@@ -1193,7 +1252,7 @@ class ConfigWindow:
         # Model suggestions
         model_info = ttk.Label(
             api_frame,
-            text="Common models: OpenAI: gpt-3.5-turbo, gpt-4 | Anthropic: claude-3-haiku-20240307 | Gemini: gemini-pro",
+            text="Common models: OpenAI: gpt-3.5-turbo, gpt-4 | Anthropic: claude-3-haiku-20240307 | Gemini: gemini-pro | Ollama: llama3, mistral",
             font=("TkDefaultFont", 8),
             foreground="gray",
         )
@@ -1296,6 +1355,8 @@ class ConfigWindow:
             missing_packages.append(("anthropic", "Anthropic Claude"))
         elif provider == "gemini" and not GEMINI_AVAILABLE:
             missing_packages.append(("google-generativeai", "Google Gemini"))
+        elif provider == "ollama" and not OLLAMA_AVAILABLE:
+            missing_packages.append(("ollama", "Ollama"))
 
         if missing_packages:
             if messagebox.askyesno(
@@ -1321,6 +1382,7 @@ class ConfigWindow:
         self.parent.config.set("API", "openai_api_key", self.openai_key_var.get())
         self.parent.config.set("API", "anthropic_api_key", self.anthropic_key_var.get())
         self.parent.config.set("API", "gemini_api_key", self.gemini_key_var.get())
+        self.parent.config.set("API", "ollama_host", self.ollama_host_var.get())
         self.parent.config.set("API", "model", self.model_var.get())
         self.parent.config.set(
             "PROMPT", "system_prompt", self.system_prompt_text.get(1.0, tk.END).strip()
