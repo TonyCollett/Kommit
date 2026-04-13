@@ -9,6 +9,7 @@ import json
 import os
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import threading
 from datetime import datetime
@@ -63,6 +64,7 @@ class GitCommitAI:
         self.current_repo_path = None
         self.restart_needed = False
         self.commit_action = "commit"
+        self.changes_dialog = None
         self.load_config()
 
         # Initialize API clients
@@ -572,11 +574,16 @@ Generate a commit message that is:
         )
         self.repo_info_label.pack(side=tk.LEFT)
 
+        self.changes_button = ttk.Button(
+            repo_info_subframe, text="Changes", command=self.open_changes_dialog
+        )
+        self.changes_button.pack(side=tk.LEFT, padx=(5, 0))
+
         # Add refresh button with "⟳" as the refresh symbol
-        refresh_button = ttk.Button(
+        self.refresh_button = ttk.Button(
             repo_info_subframe, text="⟳", width=2, command=self.refresh_repo_status
         )
-        refresh_button.pack(side=tk.LEFT, padx=(5, 0))
+        self.refresh_button.pack(side=tk.LEFT, padx=(5, 0))
 
         # Status label
         self.status_label = ttk.Label(main_frame, text="Ready")
@@ -686,6 +693,8 @@ Generate a commit message that is:
             self.config.set("REPOSITORIES", "current_repo", path)
             self.save_config()
             self.update_repo_info()
+            if self.changes_dialog and self.changes_dialog.window.winfo_exists():
+                self.changes_dialog.refresh_contents()
             self.reset_commit_action_state()
 
     def update_repo_info(self):
@@ -694,11 +703,15 @@ Generate a commit message that is:
             self.repo_info_label.config(
                 text="No repository selected", foreground="gray"
             )
+            self.changes_button.config(state=tk.DISABLED)
+            self.refresh_button.config(state=tk.DISABLED)
             return
 
         # Check if the repository path still exists
         if not os.path.exists(self.current_repo_path):
             self.repo_info_label.config(text="Repository not found", foreground="red")
+            self.changes_button.config(state=tk.DISABLED)
+            self.refresh_button.config(state=tk.DISABLED)
             return
 
         try:
@@ -712,50 +725,21 @@ Generate a commit message that is:
             )
             branch = branch_result.stdout.strip()
 
-            # Get status
-            status_result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=self.current_repo_path,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            status_lines = (
-                status_result.stdout.strip().split("\n")
-                if status_result.stdout.strip()
-                else []
-            )
-
-            # In git status --porcelain output:
-            # First column: index/staging area status (M=modified, A=added, D=deleted, R=renamed, C=copied)
-            # Second column: working tree status (M=modified, A=added, D=deleted)
-            # Untracked files are represented with "??" in the output
-
-            staged_count = 0
-            unstaged_count = 0
-
-            for line in status_lines:
-                if not line:  # Skip empty lines
-                    continue
-
-                if line.startswith("??"):  # Untracked files
-                    unstaged_count += 1
-                else:
-                    # Count staged changes (first column)
-                    if line[0] in "MADRC":
-                        staged_count += 1
-
-                    # Count unstaged changes (second column)
-                    if line[1] in "MAD":
-                        unstaged_count += 1
+            status_entries = self.get_repo_status_entries()
+            staged_count = sum(1 for entry in status_entries if entry["has_staged"])
+            unstaged_count = sum(1 for entry in status_entries if entry["has_unstaged"])
 
             info_text = f"Branch: {branch} | Staged: {staged_count} | Unstaged: {unstaged_count}"
             self.repo_info_label.config(text=info_text, foreground="black")
+            self.changes_button.config(state=tk.NORMAL)
+            self.refresh_button.config(state=tk.NORMAL)
 
         except Exception as e:
             self.repo_info_label.config(
                 text=f"Error reading repository: {str(e)}", foreground="red"
             )
+            self.changes_button.config(state=tk.DISABLED)
+            self.refresh_button.config(state=tk.DISABLED)
 
     def update_api_status(self):
         """Update the API status in the UI"""
@@ -805,15 +789,128 @@ Generate a commit message that is:
         self.set_commit_action("commit")
         self.set_commit_action_enabled(False)
 
-    def run_git_command(self, args):
+    def run_git_command(self, args, check=True):
         """Run a git command in the current repository"""
         return subprocess.run(
             ["git", *args],
             cwd=self.current_repo_path,
             capture_output=True,
             text=True,
-            check=True,
+            check=check,
         )
+
+    def get_repo_status_entries(self):
+        """Return parsed git status entries for the current repository."""
+        status_result = self.run_git_command(["status", "--porcelain"])
+        staged_states = {"M", "A", "D", "R", "C", "T", "U"}
+        worktree_states = {"M", "A", "D", "R", "C", "T", "U"}
+        entries = []
+
+        for raw_line in status_result.stdout.splitlines():
+            if not raw_line:
+                continue
+
+            index_status = raw_line[0]
+            worktree_status = raw_line[1]
+            raw_path = raw_line[3:]
+            old_path = None
+            path = raw_path
+
+            if " -> " in raw_path and (
+                index_status in {"R", "C"} or worktree_status in {"R", "C"}
+            ):
+                old_path, path = raw_path.split(" -> ", 1)
+
+            is_untracked = raw_line.startswith("??")
+            entries.append(
+                {
+                    "raw_line": raw_line,
+                    "index_status": index_status,
+                    "worktree_status": worktree_status,
+                    "path": path,
+                    "old_path": old_path,
+                    "display_path": raw_path,
+                    "is_untracked": is_untracked,
+                    "has_staged": index_status in staged_states,
+                    "has_unstaged": is_untracked or worktree_status in worktree_states,
+                }
+            )
+
+        return entries
+
+    def get_file_diff_sections(self, status_entry, context_lines=4):
+        """Return diff sections for a single changed file."""
+        sections = []
+        file_path = status_entry["path"]
+        context_arg = f"--unified={context_lines}"
+
+        if status_entry["has_staged"]:
+            staged_diff = self.run_git_command(
+                ["diff", "--cached", context_arg, "--", file_path]
+            ).stdout
+            if staged_diff.strip():
+                sections.append(("Staged Changes", staged_diff))
+
+        if status_entry["is_untracked"]:
+            sections.append(("Untracked File", self.build_untracked_diff(file_path)))
+        elif status_entry["has_unstaged"]:
+            unstaged_diff = self.run_git_command(
+                ["diff", context_arg, "--", file_path]
+            ).stdout
+            if unstaged_diff.strip():
+                sections.append(("Unstaged Changes", unstaged_diff))
+
+        return sections
+
+    def build_untracked_diff(self, relative_path, max_lines=500):
+        """Build a synthetic diff preview for an untracked file."""
+        full_path = Path(self.current_repo_path) / relative_path
+        diff_header = [
+            f"diff --git a/{relative_path} b/{relative_path}",
+            "new file mode 100644",
+            "--- /dev/null",
+            f"+++ b/{relative_path}",
+        ]
+
+        try:
+            file_bytes = full_path.read_bytes()
+        except Exception as e:
+            return (
+                "\n".join(diff_header + [f"[Unable to read file contents: {e}]"]) + "\n"
+            )
+
+        if b"\x00" in file_bytes:
+            return "\n".join(diff_header + ["[Binary file preview unavailable]"]) + "\n"
+
+        file_text = file_bytes.decode("utf-8", errors="replace")
+        content_lines = file_text.splitlines()
+        displayed_lines = content_lines[:max_lines]
+        hunk_size = len(displayed_lines)
+        diff_body = [f"@@ -0,0 +1,{hunk_size} @@"]
+        diff_body.extend(f"+{line}" for line in displayed_lines)
+
+        if len(content_lines) > max_lines:
+            diff_body.append(
+                f"+[... truncated {len(content_lines) - max_lines} more lines ...]"
+            )
+
+        if file_text.endswith("\n"):
+            return "\n".join(diff_header + diff_body) + "\n"
+
+        return (
+            "\n".join(diff_header + diff_body + [r"\ No newline at end of file"]) + "\n"
+        )
+
+    def stage_file(self, relative_path):
+        """Stage all current changes for a file."""
+        self.run_git_command(["add", "--", relative_path])
+
+    def unstage_file(self, relative_path):
+        """Unstage a file while keeping working tree changes."""
+        try:
+            self.run_git_command(["restore", "--staged", "--", relative_path])
+        except subprocess.CalledProcessError:
+            self.run_git_command(["reset", "HEAD", "--", relative_path])
 
     def commit_staged_files(self, commit_message):
         """Create a commit for staged files"""
@@ -873,6 +970,11 @@ Generate a commit message that is:
                 def on_success():
                     self.text_area.delete(1.0, tk.END)
                     self.update_repo_info()
+                    if (
+                        self.changes_dialog
+                        and self.changes_dialog.window.winfo_exists()
+                    ):
+                        self.changes_dialog.refresh_contents()
                     self.reset_commit_action_state()
                     self.update_status(f"{action_label} completed successfully")
                     messagebox.showinfo(
@@ -920,6 +1022,20 @@ Generate a commit message that is:
     def manage_repositories(self):
         """Open repository management window"""
         RepositoryManager(self)
+
+    def open_changes_dialog(self):
+        """Open the changed files and diff dialog."""
+        if not self.current_repo_path:
+            messagebox.showwarning("Warning", "Please select a repository first")
+            return
+
+        if self.changes_dialog and self.changes_dialog.window.winfo_exists():
+            self.changes_dialog.window.lift()
+            self.changes_dialog.window.focus_force()
+            self.changes_dialog.refresh_contents()
+            return
+
+        self.changes_dialog = GitChangesDialog(self)
 
     def open_terminal(self):
         """Open terminal in the current repository directory"""
@@ -1029,6 +1145,8 @@ Generate a commit message that is:
         if self.current_repo_path:
             self.update_status("Refreshing repository status...")
             self.update_repo_info()
+            if self.changes_dialog and self.changes_dialog.window.winfo_exists():
+                self.changes_dialog.refresh_contents()
             self.reset_commit_action_state()
             self.update_status("Repository status refreshed")
         else:
@@ -1065,6 +1183,366 @@ Generate a commit message that is:
             os.execl(python, python, *sys.argv)
         else:
             self.root.mainloop()
+
+
+class GitChangesDialog:
+    def __init__(self, parent):
+        self.parent = parent
+        self.status_entries = []
+        self.window = tk.Toplevel(parent.root)
+        self.window.title("Repository Changes")
+        self.window.geometry("1120x720")
+        self.window.minsize(860, 520)
+        self.window.transient(parent.root)
+        self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+
+        self.diff_font = self.build_diff_font()
+        self.setup_gui()
+        self.refresh_contents()
+
+    def build_diff_font(self):
+        """Create a monospace font for diff output."""
+        preferred_fonts = ["Cascadia Code", "Consolas", "Courier New", "TkFixedFont"]
+        available_fonts = set(tkfont.families())
+        family = next(
+            (name for name in preferred_fonts if name in available_fonts), "TkFixedFont"
+        )
+        return tkfont.Font(family=family, size=10)
+
+    def setup_gui(self):
+        """Build the changed files dialog UI."""
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(1, weight=1)
+
+        toolbar = ttk.Frame(self.window, padding="10 10 10 0")
+        toolbar.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        toolbar.columnconfigure(0, weight=1)
+
+        self.summary_label = ttk.Label(toolbar, text="Loading changes...")
+        self.summary_label.grid(row=0, column=0, sticky=tk.W)
+
+        action_frame = ttk.Frame(toolbar)
+        action_frame.grid(row=0, column=1, sticky=tk.E)
+
+        self.stage_button = ttk.Button(
+            action_frame,
+            text="Stage Selected",
+            command=self.stage_selected,
+            state=tk.DISABLED,
+        )
+        self.stage_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.unstage_button = ttk.Button(
+            action_frame,
+            text="Unstage Selected",
+            command=self.unstage_selected,
+            state=tk.DISABLED,
+        )
+        self.unstage_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Button(action_frame, text="Refresh", command=self.refresh_contents).pack(
+            side=tk.LEFT, padx=(0, 5)
+        )
+        ttk.Button(action_frame, text="Close", command=self.close_window).pack(
+            side=tk.LEFT
+        )
+
+        content = ttk.PanedWindow(self.window, orient=tk.HORIZONTAL)
+        content.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=10, pady=10)
+
+        left_panel = ttk.Frame(content, padding="0")
+        left_panel.columnconfigure(0, weight=1)
+        left_panel.rowconfigure(1, weight=1)
+        content.add(left_panel, weight=1)
+
+        ttk.Label(left_panel, text="Changed Files").grid(
+            row=0, column=0, sticky=tk.W, pady=(0, 5)
+        )
+
+        files_frame = ttk.Frame(left_panel)
+        files_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        files_frame.columnconfigure(0, weight=1)
+        files_frame.rowconfigure(0, weight=1)
+
+        self.files_listbox = tk.Listbox(
+            files_frame,
+            selectmode=tk.EXTENDED,
+            exportselection=False,
+            activestyle="none",
+        )
+        self.files_listbox.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.files_listbox.bind("<<ListboxSelect>>", self.on_selection_changed)
+
+        files_scrollbar = ttk.Scrollbar(
+            files_frame, orient=tk.VERTICAL, command=self.files_listbox.yview
+        )
+        files_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.files_listbox.config(yscrollcommand=files_scrollbar.set)
+
+        ttk.Label(
+            left_panel,
+            text="Tip: use Ctrl/Shift to select multiple files.",
+            foreground="gray",
+        ).grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
+
+        right_panel = ttk.Frame(content, padding="0")
+        right_panel.columnconfigure(0, weight=1)
+        right_panel.rowconfigure(1, weight=1)
+        content.add(right_panel, weight=3)
+
+        self.diff_title_label = ttk.Label(right_panel, text="Diff Preview")
+        self.diff_title_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+
+        diff_frame = ttk.Frame(right_panel)
+        diff_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        diff_frame.columnconfigure(0, weight=1)
+        diff_frame.rowconfigure(0, weight=1)
+
+        self.diff_text = tk.Text(
+            diff_frame,
+            wrap=tk.NONE,
+            font=self.diff_font,
+            state=tk.DISABLED,
+            undo=False,
+        )
+        self.diff_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        diff_y_scroll = ttk.Scrollbar(
+            diff_frame, orient=tk.VERTICAL, command=self.diff_text.yview
+        )
+        diff_y_scroll.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        diff_x_scroll = ttk.Scrollbar(
+            diff_frame, orient=tk.HORIZONTAL, command=self.diff_text.xview
+        )
+        diff_x_scroll.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        self.diff_text.config(
+            yscrollcommand=diff_y_scroll.set, xscrollcommand=diff_x_scroll.set
+        )
+
+        self.configure_diff_tags()
+
+    def configure_diff_tags(self):
+        """Configure text tags used to colorize diff output."""
+        self.diff_text.tag_configure(
+            "file_title", font=(self.diff_font.actual("family"), 11, "bold")
+        )
+        self.diff_text.tag_configure("section_title", foreground="#6b7280", spacing1=8)
+        self.diff_text.tag_configure("diff_meta", foreground="#1d4ed8")
+        self.diff_text.tag_configure("hunk", foreground="#7c3aed")
+        self.diff_text.tag_configure("added", foreground="#15803d")
+        self.diff_text.tag_configure("removed", foreground="#b91c1c")
+        self.diff_text.tag_configure(
+            "note",
+            foreground="#6b7280",
+            font=(self.diff_font.actual("family"), 10, "italic"),
+        )
+
+    def close_window(self):
+        """Close the dialog and clear the parent reference."""
+        self.parent.changes_dialog = None
+        self.window.destroy()
+
+    def format_entry_label(self, entry):
+        """Format a status entry for the changed files list."""
+        flags = []
+        if entry["has_staged"]:
+            flags.append("S")
+        if entry["has_unstaged"]:
+            flags.append("U")
+        if entry["is_untracked"]:
+            flags.append("NEW")
+
+        flag_text = "/".join(flags) if flags else "-"
+        return f"[{flag_text}] {entry['display_path']}"
+
+    def get_listbox_color(self, entry):
+        """Return an item color based on staged/unstaged state."""
+        if entry["has_staged"] and entry["has_unstaged"]:
+            return "#1d4ed8"
+        if entry["has_staged"]:
+            return "#15803d"
+        return "#b45309"
+
+    def refresh_contents(self):
+        """Reload repository status and refresh the dialog."""
+        selected_paths = {entry["path"] for entry in self.get_selected_entries()}
+
+        try:
+            self.status_entries = self.parent.get_repo_status_entries()
+        except Exception as e:
+            self.status_entries = []
+            self.summary_label.config(text="Unable to load changes")
+            self.render_text([(str(e), "note")])
+            self.files_listbox.delete(0, tk.END)
+            self.update_action_buttons()
+            return
+
+        self.files_listbox.delete(0, tk.END)
+        for index, entry in enumerate(self.status_entries):
+            self.files_listbox.insert(tk.END, self.format_entry_label(entry))
+            self.files_listbox.itemconfig(index, fg=self.get_listbox_color(entry))
+
+        staged_count = sum(1 for entry in self.status_entries if entry["has_staged"])
+        unstaged_count = sum(
+            1 for entry in self.status_entries if entry["has_unstaged"]
+        )
+        self.summary_label.config(
+            text=(
+                f"{len(self.status_entries)} changed file(s) | "
+                f"Staged: {staged_count} | Unstaged: {unstaged_count}"
+            )
+        )
+
+        restored = False
+        for index, entry in enumerate(self.status_entries):
+            if entry["path"] in selected_paths:
+                self.files_listbox.selection_set(index)
+                restored = True
+
+        if self.status_entries and not restored:
+            self.files_listbox.selection_set(0)
+
+        self.render_selected_diffs()
+        self.update_action_buttons()
+
+    def get_selected_entries(self):
+        """Return the currently selected file entries."""
+        return [self.status_entries[i] for i in self.files_listbox.curselection()]
+
+    def on_selection_changed(self, event=None):
+        """Update the diff preview when the selection changes."""
+        self.render_selected_diffs()
+        self.update_action_buttons()
+
+    def update_action_buttons(self):
+        """Enable or disable stage/unstage buttons based on selection."""
+        selected_entries = self.get_selected_entries()
+        can_stage = any(entry["has_unstaged"] for entry in selected_entries)
+        can_unstage = any(entry["has_staged"] for entry in selected_entries)
+        self.stage_button.config(state=tk.NORMAL if can_stage else tk.DISABLED)
+        self.unstage_button.config(state=tk.NORMAL if can_unstage else tk.DISABLED)
+
+    def render_text(self, segments):
+        """Render tagged text segments into the diff preview."""
+        self.diff_text.config(state=tk.NORMAL)
+        self.diff_text.delete("1.0", tk.END)
+
+        for text, tag in segments:
+            self.diff_text.insert(tk.END, text, tag)
+
+        self.diff_text.config(state=tk.DISABLED)
+        self.diff_text.yview_moveto(0)
+        self.diff_text.xview_moveto(0)
+
+    def render_selected_diffs(self):
+        """Render diffs for the current file selection."""
+        selected_entries = self.get_selected_entries()
+
+        if not self.status_entries:
+            self.diff_title_label.config(text="Diff Preview")
+            self.render_text([("No changed files in this repository.\n", "note")])
+            return
+
+        if not selected_entries:
+            self.diff_title_label.config(text="Diff Preview")
+            self.render_text([("Select a file to preview its diff.\n", "note")])
+            return
+
+        self.diff_title_label.config(
+            text=f"Diff Preview ({len(selected_entries)} selected)"
+        )
+
+        segments = []
+        for entry in selected_entries:
+            header = self.format_entry_label(entry)
+            segments.append((f"{header}\n", "file_title"))
+
+            sections = self.parent.get_file_diff_sections(entry, context_lines=4)
+            if not sections:
+                segments.append(("No diff available for this file.\n\n", "note"))
+                continue
+
+            for section_title, diff_text in sections:
+                segments.append((f"{section_title}\n", "section_title"))
+                segments.extend(self.colorize_diff(diff_text))
+                segments.append(("\n", None))
+
+            segments.append(("\n", None))
+
+        self.render_text(segments)
+
+    def colorize_diff(self, diff_text):
+        """Split raw diff text into tagged lines for syntax coloring."""
+        segments = []
+        for line in diff_text.splitlines(keepends=True):
+            tag = None
+            if line.startswith("diff --git"):
+                tag = "diff_meta"
+            elif line.startswith(
+                (
+                    "index ",
+                    "new file mode",
+                    "deleted file mode",
+                    "similarity index",
+                    "rename from ",
+                    "rename to ",
+                    "copy from ",
+                    "copy to ",
+                    "--- ",
+                    "+++ ",
+                )
+            ):
+                tag = "diff_meta"
+            elif line.startswith("@@"):
+                tag = "hunk"
+            elif line.startswith("+") and not line.startswith("+++"):
+                tag = "added"
+            elif line.startswith("-") and not line.startswith("---"):
+                tag = "removed"
+            elif line.startswith("\\"):
+                tag = "note"
+
+            segments.append((line, tag))
+
+        return segments
+
+    def stage_selected(self):
+        """Stage the selected files."""
+        selected_entries = self.get_selected_entries()
+        target_entries = [entry for entry in selected_entries if entry["has_unstaged"]]
+        if not target_entries:
+            return
+
+        try:
+            for entry in target_entries:
+                self.parent.stage_file(entry["path"])
+        except Exception as e:
+            self.parent.show_error_dialog("Stage Failed", str(e))
+            return
+
+        self.parent.update_repo_info()
+        self.parent.reset_commit_action_state()
+        self.parent.update_status(f"Staged {len(target_entries)} file(s)")
+        self.refresh_contents()
+
+    def unstage_selected(self):
+        """Unstage the selected files."""
+        selected_entries = self.get_selected_entries()
+        target_entries = [entry for entry in selected_entries if entry["has_staged"]]
+        if not target_entries:
+            return
+
+        try:
+            for entry in target_entries:
+                self.parent.unstage_file(entry["path"])
+        except Exception as e:
+            self.parent.show_error_dialog("Unstage Failed", str(e))
+            return
+
+        self.parent.update_repo_info()
+        self.parent.reset_commit_action_state()
+        self.parent.update_status(f"Unstaged {len(target_entries)} file(s)")
+        self.refresh_contents()
 
 
 class RepositoryManager:
