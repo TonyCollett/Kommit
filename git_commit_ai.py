@@ -56,13 +56,13 @@ if OLLAMA_AVAILABLE:
     from ollama import Client as OllamaClient
 
 
-
 class GitCommitAI:
     def __init__(self):
         self.config_file = Path(__file__).parent / "git_commit_ai_config.ini"
         self.config = configparser.ConfigParser()
         self.current_repo_path = None
         self.restart_needed = False
+        self.commit_action = "commit"
         self.load_config()
 
         # Initialize API clients
@@ -286,7 +286,9 @@ Generate a commit message that is:
                 self.gemini_client = genai.Client(api_key=api_key)
 
         elif provider == "ollama" and OLLAMA_AVAILABLE:
-            host = self.config.get("API", "ollama_host", fallback="http://localhost:11434")
+            host = self.config.get(
+                "API", "ollama_host", fallback="http://localhost:11434"
+            )
             self.ollama_client = OllamaClient(host=host)
 
     def get_git_info(self):
@@ -506,7 +508,7 @@ Generate a commit message that is:
                     {"role": "user", "content": user_prompt},
                 ],
             )
-            return response['message']['content'].strip()
+            return response["message"]["content"].strip()
         except Exception as e:
             raise Exception(f"Ollama generation failed: {e}")
 
@@ -598,6 +600,28 @@ Generate a commit message that is:
             buttons_frame, text="Copy to Clipboard", command=self.copy_clicked
         ).pack(side=tk.LEFT, padx=(0, 5))
 
+        self.commit_action_button = ttk.Button(
+            buttons_frame,
+            text="Commit Staged Files ▼",
+            command=self.show_commit_actions_menu,
+            state=tk.DISABLED,
+        )
+        self.commit_action_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.commit_actions_menu = tk.Menu(buttons_frame, tearoff=0)
+        self.commit_actions_menu.add_command(
+            label="Commit Staged Files",
+            command=lambda: self.run_commit_action("commit"),
+        )
+        self.commit_actions_menu.add_command(
+            label="Commit and Push",
+            command=lambda: self.run_commit_action("push"),
+        )
+        self.commit_actions_menu.add_command(
+            label="Commit and Sync",
+            command=lambda: self.run_commit_action("sync"),
+        )
+
         # Create dropdown menu button for terminal/explorer actions
         self.repo_actions_button = ttk.Button(
             buttons_frame,
@@ -662,6 +686,7 @@ Generate a commit message that is:
             self.config.set("REPOSITORIES", "current_repo", path)
             self.save_config()
             self.update_repo_info()
+            self.reset_commit_action_state()
 
     def update_repo_info(self):
         """Update repository information display"""
@@ -756,6 +781,142 @@ Generate a commit message that is:
         else:
             self.status_label.config(text="Ready", foreground="black")
 
+    def get_commit_action_label(self):
+        """Get the current commit action button label"""
+        labels = {
+            "commit": "Commit Staged Files",
+            "push": "Commit and Push",
+            "sync": "Commit and Sync",
+        }
+        return labels.get(self.commit_action, "Commit Staged Files")
+
+    def set_commit_action(self, action):
+        """Set the current commit action"""
+        self.commit_action = action
+        self.commit_action_button.config(text=f"{self.get_commit_action_label()} ▼")
+
+    def set_commit_action_enabled(self, enabled):
+        """Enable or disable the commit action button"""
+        state = tk.NORMAL if enabled else tk.DISABLED
+        self.commit_action_button.config(state=state)
+
+    def reset_commit_action_state(self):
+        """Reset commit action button to its default disabled state"""
+        self.set_commit_action("commit")
+        self.set_commit_action_enabled(False)
+
+    def run_git_command(self, args):
+        """Run a git command in the current repository"""
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.current_repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def commit_staged_files(self, commit_message):
+        """Create a commit for staged files"""
+        self.run_git_command(["commit", "-m", commit_message])
+
+    def push_current_branch(self):
+        """Push current branch to its remote"""
+        self.run_git_command(["push"])
+
+    def sync_current_branch(self):
+        """Pull with rebase and then push the current branch"""
+        self.run_git_command(["pull", "--rebase"])
+        self.run_git_command(["push"])
+
+    def run_selected_commit_action(self):
+        """Run the selected commit workflow"""
+        self.run_commit_action(self.commit_action)
+
+    def run_commit_action(self, action):
+        """Run a specific commit workflow"""
+        if not self.current_repo_path:
+            messagebox.showwarning("Warning", "Please select a repository first")
+            return
+
+        commit_message = self.text_area.get(1.0, tk.END).strip()
+        if not commit_message:
+            messagebox.showwarning("Warning", "No commit message to use")
+            return
+
+        if str(self.commit_action_button.cget("state")) == tk.DISABLED:
+            messagebox.showwarning(
+                "Warning", "Generate a commit message before running git actions"
+            )
+            return
+
+        self.commit_action = action
+        action_label = self.get_commit_action_label()
+        self.set_commit_action_enabled(False)
+
+        def action_thread():
+            try:
+                self.update_status(f"Running {action_label.lower()}...")
+
+                git_info = self.get_git_info()
+                if not git_info["staged_files"] or not any(git_info["staged_files"]):
+                    raise Exception(
+                        "No staged files found. Please stage some files first."
+                    )
+
+                self.commit_staged_files(commit_message)
+
+                if self.commit_action == "push":
+                    self.push_current_branch()
+                elif self.commit_action == "sync":
+                    self.sync_current_branch()
+
+                def on_success():
+                    self.text_area.delete(1.0, tk.END)
+                    self.update_repo_info()
+                    self.reset_commit_action_state()
+                    self.update_status(f"{action_label} completed successfully")
+                    messagebox.showinfo(
+                        "Success", f"{action_label} completed successfully."
+                    )
+
+                self.root.after(0, on_success)
+
+            except subprocess.CalledProcessError as e:
+                error_output = (e.stderr or e.stdout or str(e)).strip()
+
+                def on_failure():
+                    self.update_repo_info()
+                    self.set_commit_action_enabled(True)
+                    self.update_status(f"Error: {error_output}")
+                    self.show_error_dialog("Git Error", error_output)
+
+                self.root.after(0, on_failure)
+
+            except Exception as e:
+                error_message = str(e)
+
+                def on_failure():
+                    self.update_repo_info()
+                    self.set_commit_action_enabled(True)
+                    self.update_status(f"Error: {error_message}")
+                    self.show_error_dialog("Error", error_message)
+
+                self.root.after(0, on_failure)
+
+        threading.Thread(target=action_thread, daemon=True).start()
+
+    def show_commit_actions_menu(self):
+        """Show the commit actions dropdown menu"""
+        if str(self.commit_action_button.cget("state")) == tk.DISABLED:
+            return
+
+        x = self.commit_action_button.winfo_rootx()
+        y = (
+            self.commit_action_button.winfo_rooty()
+            + self.commit_action_button.winfo_height()
+        )
+        self.commit_actions_menu.post(x, y)
+
     def manage_repositories(self):
         """Open repository management window"""
         RepositoryManager(self)
@@ -804,6 +965,8 @@ Generate a commit message that is:
             messagebox.showwarning("Warning", "Please select a repository first")
             return
 
+        self.reset_commit_action_state()
+
         def generate_thread():
             try:
                 self.update_status("Getting git information...")
@@ -822,6 +985,7 @@ Generate a commit message that is:
 
                 self.text_area.delete(1.0, tk.END)
                 self.text_area.insert(1.0, commit_message)
+                self.set_commit_action_enabled(True)
                 self.update_status("Commit message generated successfully")
 
                 # Refresh repo info to show updated status
@@ -865,6 +1029,7 @@ Generate a commit message that is:
         if self.current_repo_path:
             self.update_status("Refreshing repository status...")
             self.update_repo_info()
+            self.reset_commit_action_state()
             self.update_status("Repository status refreshed")
         else:
             self.update_status("No repository selected")
@@ -1125,9 +1290,7 @@ class ConfigWindow:
             self.ollama_frame.grid()
             # Show package status only if not installed
             if not OLLAMA_AVAILABLE:
-                self.package_status_label.config(
-                    text="Ollama package not installed"
-                )
+                self.package_status_label.config(text="Ollama package not installed")
                 self.package_install_button.grid()
 
     def setup_config_gui(self):
@@ -1232,11 +1395,13 @@ class ConfigWindow:
             row=0, column=0, sticky=tk.W
         )
         self.ollama_host_var = tk.StringVar(
-            value=self.parent.config.get("API", "ollama_host", fallback="http://localhost:11434")
+            value=self.parent.config.get(
+                "API", "ollama_host", fallback="http://localhost:11434"
+            )
         )
-        ttk.Entry(
-            self.ollama_frame, textvariable=self.ollama_host_var, width=50
-        ).grid(row=0, column=1, sticky=(tk.W, tk.E))
+        ttk.Entry(self.ollama_frame, textvariable=self.ollama_host_var, width=50).grid(
+            row=0, column=1, sticky=(tk.W, tk.E)
+        )
 
         # Model selection
         model_frame = ttk.Frame(api_frame)
