@@ -8,6 +8,7 @@ import subprocess
 import json
 import os
 import re
+import shutil
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, scrolledtext, messagebox, filedialog
@@ -912,6 +913,23 @@ Generate a commit message that is:
         except subprocess.CalledProcessError:
             self.run_git_command(["reset", "HEAD", "--", relative_path])
 
+    def discard_unstaged_changes(self, status_entry):
+        """Discard only unstaged changes for a file, preserving staged content."""
+        relative_path = status_entry["path"]
+        full_path = Path(self.current_repo_path) / relative_path
+
+        if status_entry["is_untracked"]:
+            if full_path.is_dir():
+                shutil.rmtree(full_path)
+            elif full_path.exists():
+                full_path.unlink()
+            return
+
+        try:
+            self.run_git_command(["restore", "--worktree", "--", relative_path])
+        except subprocess.CalledProcessError:
+            self.run_git_command(["checkout", "--", relative_path])
+
     def commit_staged_files(self, commit_message):
         """Create a commit for staged files"""
         self.run_git_command(["commit", "-m", commit_message])
@@ -1240,6 +1258,14 @@ class GitChangesDialog:
         )
         self.unstage_button.pack(side=tk.LEFT, padx=(0, 5))
 
+        self.discard_button = ttk.Button(
+            action_frame,
+            text="Discard Unstaged",
+            command=self.discard_selected,
+            state=tk.DISABLED,
+        )
+        self.discard_button.pack(side=tk.LEFT, padx=(0, 5))
+
         ttk.Button(action_frame, text="Refresh", command=self.refresh_contents).pack(
             side=tk.LEFT, padx=(0, 5)
         )
@@ -1419,8 +1445,13 @@ class GitChangesDialog:
         selected_entries = self.get_selected_entries()
         can_stage = any(entry["has_unstaged"] for entry in selected_entries)
         can_unstage = any(entry["has_staged"] for entry in selected_entries)
+        can_discard = any(
+            entry["has_unstaged"] and not entry["has_staged"]
+            for entry in selected_entries
+        )
         self.stage_button.config(state=tk.NORMAL if can_stage else tk.DISABLED)
         self.unstage_button.config(state=tk.NORMAL if can_unstage else tk.DISABLED)
+        self.discard_button.config(state=tk.NORMAL if can_discard else tk.DISABLED)
 
     def render_text(self, segments):
         """Render tagged text segments into the diff preview."""
@@ -1542,6 +1573,42 @@ class GitChangesDialog:
         self.parent.update_repo_info()
         self.parent.reset_commit_action_state()
         self.parent.update_status(f"Unstaged {len(target_entries)} file(s)")
+        self.refresh_contents()
+
+    def discard_selected(self):
+        """Discard only unstaged changes for selected files without staged changes."""
+        selected_entries = self.get_selected_entries()
+        target_entries = [
+            entry
+            for entry in selected_entries
+            if entry["has_unstaged"] and not entry["has_staged"]
+        ]
+        if not target_entries:
+            return
+
+        file_list = "\n".join(f"- {entry['display_path']}" for entry in target_entries)
+        confirmed = messagebox.askyesno(
+            "Discard Unstaged Changes",
+            "This will permanently discard unstaged changes for the selected files.\n\n"
+            f"{file_list}\n\n"
+            "Files with staged changes are not affected.",
+            parent=self.window,
+        )
+        if not confirmed:
+            return
+
+        try:
+            for entry in target_entries:
+                self.parent.discard_unstaged_changes(entry)
+        except Exception as e:
+            self.parent.show_error_dialog("Discard Failed", str(e))
+            return
+
+        self.parent.update_repo_info()
+        self.parent.reset_commit_action_state()
+        self.parent.update_status(
+            f"Discarded unstaged changes in {len(target_entries)} file(s)"
+        )
         self.refresh_contents()
 
 
