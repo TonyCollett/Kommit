@@ -604,19 +604,20 @@ Generate a commit message that is:
         ttk.Button(
             buttons_frame, text="Configure", command=self.configure_clicked
         ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
-            buttons_frame, text="Copy to Clipboard", command=self.copy_clicked
-        ).pack(side=tk.LEFT, padx=(0, 5))
-
         self.commit_action_button = ttk.Button(
             buttons_frame,
-            text="Commit Staged Files ▼",
+            text="Commit Actions ▼",
             command=self.show_commit_actions_menu,
             state=tk.DISABLED,
         )
         self.commit_action_button.pack(side=tk.LEFT, padx=(0, 5))
 
         self.commit_actions_menu = tk.Menu(buttons_frame, tearoff=0)
+        self.commit_actions_menu.add_command(
+            label="Copy to Clipboard",
+            command=self.copy_commit_message,
+        )
+        self.commit_actions_menu.add_separator()
         self.commit_actions_menu.add_command(
             label="Commit Staged Files",
             command=lambda: self.run_commit_action("commit"),
@@ -778,7 +779,6 @@ Generate a commit message that is:
     def set_commit_action(self, action):
         """Set the current commit action"""
         self.commit_action = action
-        self.commit_action_button.config(text=f"{self.get_commit_action_label()} ▼")
 
     def set_commit_action_enabled(self, enabled):
         """Enable or disable the commit action button"""
@@ -1135,7 +1135,7 @@ Generate a commit message that is:
         """Open configuration window"""
         ConfigWindow(self)
 
-    def copy_clicked(self):
+    def copy_commit_message(self):
         """Copy commit message to clipboard"""
         commit_message = self.text_area.get(1.0, tk.END).strip()
         if commit_message:
