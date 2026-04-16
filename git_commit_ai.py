@@ -304,14 +304,7 @@ Generate a commit message that is:
 
         try:
             # Get current branch
-            branch_result = subprocess.run(
-                ["git", "branch", "--show-current"],
-                cwd=self.current_repo_path,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            branch_name = branch_result.stdout.strip()
+            branch_name = self.get_current_branch_name()
 
             # Get repository name
             repo_result = subprocess.run(
@@ -371,7 +364,7 @@ Generate a commit message that is:
             }
 
         except subprocess.CalledProcessError as e:
-            raise Exception(f"Git command failed: {e}")
+            raise Exception(self.get_git_error_message(e))
         except Exception as e:
             raise Exception(f"Error getting git info: {e}")
 
@@ -533,7 +526,7 @@ Generate a commit message that is:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(4, weight=1)
 
         # Repository selection frame
         repo_frame = ttk.LabelFrame(
@@ -718,14 +711,7 @@ Generate a commit message that is:
 
         try:
             # Get branch info
-            branch_result = subprocess.run(
-                ["git", "branch", "--show-current"],
-                cwd=self.current_repo_path,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            branch = branch_result.stdout.strip()
+            branch = self.get_current_branch_name()
 
             status_entries = self.get_repo_status_entries()
             staged_count = sum(1 for entry in status_entries if entry["has_staged"])
@@ -736,9 +722,9 @@ Generate a commit message that is:
             self.changes_button.config(state=tk.NORMAL)
             self.refresh_button.config(state=tk.NORMAL)
 
-        except Exception as e:
+        except Exception:
             self.repo_info_label.config(
-                text=f"Error reading repository: {str(e)}", foreground="red"
+                text="Error reading repository", foreground="red"
             )
             self.changes_button.config(state=tk.DISABLED)
             self.refresh_button.config(state=tk.DISABLED)
@@ -799,6 +785,36 @@ Generate a commit message that is:
             text=True,
             check=check,
         )
+
+    def get_current_branch_name(self):
+        """Return the current branch name for the selected repository."""
+        branch_result = self.run_git_command(["branch", "--show-current"])
+        branch_name = branch_result.stdout.strip()
+        if not branch_name:
+            raise Exception("Unable to determine the current branch name.")
+        return branch_name
+
+    def has_remote(self, remote_name="origin"):
+        """Return whether a named remote exists."""
+        remote_result = self.run_git_command(
+            ["remote", "get-url", remote_name], check=False
+        )
+        return remote_result.returncode == 0
+
+    def has_upstream_branch(self):
+        """Return whether the current branch already tracks an upstream branch."""
+        upstream_result = self.run_git_command(
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+            check=False,
+        )
+        return upstream_result.returncode == 0
+
+    def get_git_error_message(self, error):
+        """Extract a readable error message from a failed git command."""
+        for value in (error.stderr, error.stdout, str(error)):
+            if value and value.strip():
+                return value.strip()
+        return "Git command failed."
 
     def get_repo_status_entries(self):
         """Return parsed git status entries for the current repository."""
@@ -936,12 +952,21 @@ Generate a commit message that is:
 
     def push_current_branch(self):
         """Push current branch to its remote"""
-        self.run_git_command(["push"])
+        if self.has_upstream_branch():
+            self.run_git_command(["push"])
+            return
+
+        if not self.has_remote("origin"):
+            raise Exception("Remote 'origin' is not configured for this repository.")
+
+        branch_name = self.get_current_branch_name()
+        self.run_git_command(["push", "--set-upstream", "origin", branch_name])
 
     def sync_current_branch(self):
         """Pull with rebase and then push the current branch"""
-        self.run_git_command(["pull", "--rebase"])
-        self.run_git_command(["push"])
+        if self.has_upstream_branch():
+            self.run_git_command(["pull", "--rebase"])
+        self.push_current_branch()
 
     def run_selected_commit_action(self):
         """Run the selected commit workflow"""
@@ -1002,12 +1027,12 @@ Generate a commit message that is:
                 self.root.after(0, on_success)
 
             except subprocess.CalledProcessError as e:
-                error_output = (e.stderr or e.stdout or str(e)).strip()
+                error_output = self.get_git_error_message(e)
 
                 def on_failure():
                     self.update_repo_info()
                     self.set_commit_action_enabled(True)
-                    self.update_status(f"Error: {error_output}")
+                    self.update_status(f"{action_label} failed")
                     self.show_error_dialog("Git Error", error_output)
 
                 self.root.after(0, on_failure)
@@ -1018,7 +1043,7 @@ Generate a commit message that is:
                 def on_failure():
                     self.update_repo_info()
                     self.set_commit_action_enabled(True)
-                    self.update_status(f"Error: {error_message}")
+                    self.update_status(f"{action_label} failed")
                     self.show_error_dialog("Error", error_message)
 
                 self.root.after(0, on_failure)
@@ -1126,7 +1151,7 @@ Generate a commit message that is:
                 self.update_repo_info()
 
             except Exception as e:
-                self.update_status(f"Error: {str(e)}")
+                self.update_status("Error generating commit message")
                 self.show_error_dialog("Error", str(e))
 
         threading.Thread(target=generate_thread, daemon=True).start()
