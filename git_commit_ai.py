@@ -117,6 +117,12 @@ Generate a commit message that is:
 3. Uses conventional commit format if appropriate
 4. Is under 72 characters for the first line""",
             },
+            "CODE_REVIEW": {
+                "system_prompt": """You are a senior software engineer performing a focused code review on git changes.
+Look for correctness issues, regressions, edge cases, security problems, performance risks, and maintainability concerns.
+Only report findings that are supported by the provided changes and be specific about the impact.
+If no significant issues are present, say so clearly.""",
+            },
             "GUI": {"always_on_top": "true"},
         }
 
@@ -307,18 +313,7 @@ Generate a commit message that is:
             branch_name = self.get_current_branch_name()
 
             # Get repository name
-            repo_result = subprocess.run(
-                ["git", "remote", "get-url", "origin"],
-                cwd=self.current_repo_path,
-                capture_output=True,
-                text=True,
-            )
-            repo_url = repo_result.stdout.strip() if repo_result.returncode == 0 else ""
-            repo_name = (
-                Path(repo_url).stem.replace(".git", "")
-                if repo_url
-                else Path(self.current_repo_path).name
-            )
+            repo_name = self.get_repository_name()
 
             # Get staged files
             staged_result = subprocess.run(
@@ -368,6 +363,54 @@ Generate a commit message that is:
         except Exception as e:
             raise Exception(f"Error getting git info: {e}")
 
+    def get_code_review_info(self):
+        """Get repository change information for AI code review."""
+        if not self.current_repo_path:
+            raise Exception("No repository selected")
+
+        if not self.is_valid_git_repo(self.current_repo_path):
+            raise Exception(f"Invalid git repository: {self.current_repo_path}")
+
+        try:
+            branch_name = self.get_current_branch_name()
+            repo_name = self.get_repository_name()
+            status_entries = self.get_repo_status_entries()
+            change_descriptions = []
+            diff_sections = []
+
+            for entry in status_entries:
+                states = []
+                if entry["has_staged"]:
+                    states.append("staged")
+                if entry["has_unstaged"]:
+                    states.append("unstaged")
+                if entry["is_untracked"]:
+                    states.append("untracked")
+
+                state_text = ", ".join(states) if states else "changed"
+                change_descriptions.append(f"{entry['display_path']} ({state_text})")
+
+                for section_title, diff_text in self.get_file_diff_sections(entry):
+                    diff_sections.append(f"File: {entry['display_path']}")
+                    diff_sections.append(f"[{section_title}]")
+                    diff_sections.append(diff_text.rstrip())
+                    diff_sections.append("")
+
+            return {
+                "branch_name": branch_name,
+                "repo_name": repo_name,
+                "repo_path": self.current_repo_path,
+                "status_entries": status_entries,
+                "git_diff": "\n".join(diff_sections).strip(),
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "files_changed": ", ".join(change_descriptions),
+            }
+
+        except subprocess.CalledProcessError as e:
+            raise Exception(self.get_git_error_message(e))
+        except Exception as e:
+            raise Exception(f"Error getting code review info: {e}")
+
     def replace_placeholders(self, text, git_info):
         """Replace placeholder values in text"""
 
@@ -379,30 +422,56 @@ Generate a commit message that is:
 
     def generate_commit_message(self, git_info):
         """Generate commit message using configured AI provider"""
-        provider = self.config.get("API", "provider")
         system_prompt = self.config.get("PROMPT", "system_prompt")
         user_prompt = self.replace_placeholders(
             self.config.get("PROMPT", "user_prompt"), git_info
         )
 
+        return self.generate_ai_response(system_prompt, user_prompt, max_tokens=200)
+
+    def generate_code_review(self, review_info):
+        """Generate an AI code review for the current repository changes."""
+        system_prompt = self.config.get("CODE_REVIEW", "system_prompt")
+        user_prompt = f"""Review the following uncommitted git changes and provide an actionable code review.
+
+Repository: {review_info["repo_name"]}
+Branch: {review_info["branch_name"]}
+Date: {review_info["date"]}
+Changed files: {review_info["files_changed"]}
+
+Response requirements:
+1. Start with a one-line overall assessment.
+2. List findings in priority order with file references when possible.
+3. Explain the impact of each issue briefly.
+4. If no significant issues are found, explicitly say that.
+
+Git changes:
+{review_info["git_diff"]}"""
+
+        return self.generate_ai_response(system_prompt, user_prompt, max_tokens=700)
+
+    def generate_ai_response(self, system_prompt, user_prompt, max_tokens=200):
+        """Generate text using the configured AI provider."""
+        provider = self.config.get("API", "provider")
+
         try:
             if provider == "openai" and self.openai_client:
-                return self.generate_openai(system_prompt, user_prompt)
+                return self.generate_openai(system_prompt, user_prompt, max_tokens)
             elif provider == "anthropic" and self.anthropic_client:
-                return self.generate_anthropic(system_prompt, user_prompt)
+                return self.generate_anthropic(system_prompt, user_prompt, max_tokens)
             elif provider == "gemini" and self.gemini_client:
-                return self.generate_gemini(system_prompt, user_prompt)
+                return self.generate_gemini(system_prompt, user_prompt, max_tokens)
             elif provider == "ollama" and self.ollama_client:
-                return self.generate_ollama(system_prompt, user_prompt)
+                return self.generate_ollama(system_prompt, user_prompt, max_tokens)
             else:
                 raise Exception(
                     f"Provider '{provider}' not available or not configured"
                 )
 
         except Exception as e:
-            raise Exception(f"Error generating commit message: {e}")
+            raise Exception(f"Error generating AI response: {e}")
 
-    def generate_openai(self, system_prompt, user_prompt):
+    def generate_openai(self, system_prompt, user_prompt, max_tokens=200):
         """Generate using OpenAI API"""
         if not OPENAI_AVAILABLE:
             raise Exception("OpenAI package not installed. Please install it first.")
@@ -415,7 +484,7 @@ Generate a commit message that is:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=200,
+                max_tokens=max_tokens,
                 temperature=0.7,
             )
         except Exception as e:
@@ -429,7 +498,7 @@ Generate a commit message that is:
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
-                        max_completion_tokens=200,
+                        max_completion_tokens=max_tokens,
                         temperature=0.7,
                     )
                 except Exception as e2:
@@ -442,7 +511,7 @@ Generate a commit message that is:
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            max_completion_tokens=200,
+                            max_completion_tokens=max_tokens,
                             temperature=1,
                         )
                     else:
@@ -455,14 +524,14 @@ Generate a commit message that is:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    max_tokens=200,
+                    max_tokens=max_tokens,
                     temperature=1,
                 )
             else:
                 raise e
         return response.choices[0].message.content.strip()
 
-    def generate_anthropic(self, system_prompt, user_prompt):
+    def generate_anthropic(self, system_prompt, user_prompt, max_tokens=200):
         """Generate using Anthropic API"""
         if not ANTHROPIC_AVAILABLE:
             raise Exception("Anthropic package not installed. Please install it first.")
@@ -470,13 +539,13 @@ Generate a commit message that is:
         model = self.config.get("API", "model", fallback="claude-3-haiku-20240307")
         response = self.anthropic_client.messages.create(
             model=model,
-            max_tokens=200,
+            max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
         return response.content[0].text.strip()
 
-    def generate_gemini(self, system_prompt, user_prompt):
+    def generate_gemini(self, system_prompt, user_prompt, max_tokens=200):
         """Generate using Gemini API"""
         if not GEMINI_AVAILABLE:
             raise Exception(
@@ -490,7 +559,7 @@ Generate a commit message that is:
         )
         return response.text.strip()
 
-    def generate_ollama(self, system_prompt, user_prompt):
+    def generate_ollama(self, system_prompt, user_prompt, max_tokens=200):
         """Generate using Ollama API"""
         if not OLLAMA_AVAILABLE:
             raise Exception("Ollama package not installed. Please install it first.")
@@ -591,6 +660,9 @@ Generate a commit message that is:
             row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10)
         )
 
+        ttk.Button(
+            buttons_frame, text="AI Code Review", command=self.review_clicked
+        ).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(
             buttons_frame, text="Generate Commit Message", command=self.generate_clicked
         ).pack(side=tk.LEFT, padx=(0, 5))
@@ -793,6 +865,14 @@ Generate a commit message that is:
         if not branch_name:
             raise Exception("Unable to determine the current branch name.")
         return branch_name
+
+    def get_repository_name(self):
+        """Return the selected repository name using origin when available."""
+        repo_result = self.run_git_command(["remote", "get-url", "origin"], check=False)
+        repo_url = repo_result.stdout.strip() if repo_result.returncode == 0 else ""
+        if repo_url:
+            return Path(repo_url).stem.replace(".git", "")
+        return Path(self.current_repo_path).name
 
     def has_remote(self, remote_name="origin"):
         """Return whether a named remote exists."""
@@ -1156,6 +1236,51 @@ Generate a commit message that is:
 
         threading.Thread(target=generate_thread, daemon=True).start()
 
+    def review_clicked(self):
+        """Handle AI code review button click."""
+        if not self.current_repo_path:
+            messagebox.showwarning("Warning", "Please select a repository first")
+            return
+
+        def review_thread():
+            try:
+                self.update_status("Collecting updated code...")
+                review_info = self.get_code_review_info()
+
+                if not review_info["status_entries"]:
+
+                    def on_no_changes():
+                        self.update_status("No code changes found")
+                        messagebox.showwarning(
+                            "Warning",
+                            "No updated code found. Make some changes before running a review.",
+                        )
+
+                    self.root.after(0, on_no_changes)
+                    return
+
+                self.update_status("Generating AI code review...")
+                review_result = self.generate_code_review(review_info)
+
+                def on_success():
+                    self.update_status("AI code review completed")
+                    self.show_text_dialog(
+                        "AI Code Review", review_result, markdown=True
+                    )
+
+                self.root.after(0, on_success)
+
+            except Exception as e:
+                error_message = str(e)
+
+                def on_failure():
+                    self.update_status("Error generating AI code review")
+                    self.show_error_dialog("Error", error_message)
+
+                self.root.after(0, on_failure)
+
+        threading.Thread(target=review_thread, daemon=True).start()
+
     def configure_clicked(self):
         """Open configuration window"""
         ConfigWindow(self)
@@ -1195,27 +1320,195 @@ Generate a commit message that is:
         else:
             self.update_status("No repository selected")
 
-    def show_error_dialog(self, title, message):
-        """Show a custom error dialog with copyable message"""
-        error_window = tk.Toplevel(self.root)
-        error_window.title(title)
-        error_window.geometry("500x300")
-        error_window.resizable(True, True)
-        error_window.transient(self.root)
-        error_window.grab_set()
+    def insert_markdown_inline(self, text_area, text, base_tags=()):
+        """Insert a single line of markdown with basic inline formatting."""
+        pattern = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)")
+        position = 0
 
-        # Create frame
-        frame = ttk.Frame(error_window, padding="10")
+        for match in pattern.finditer(text):
+            if match.start() > position:
+                text_area.insert(tk.END, text[position : match.start()], base_tags)
+
+            token = match.group(0)
+            tags = list(base_tags)
+            content = token
+
+            if token.startswith("`") and token.endswith("`"):
+                tags.append("md_inline_code")
+                content = token[1:-1]
+            elif (
+                (token.startswith("**") and token.endswith("**"))
+                or token.startswith("__")
+                and token.endswith("__")
+            ):
+                tags.append("md_bold")
+                content = token[2:-2]
+            elif (token.startswith("*") and token.endswith("*")) or (
+                token.startswith("_") and token.endswith("_")
+            ):
+                tags.append("md_italic")
+                content = token[1:-1]
+
+            text_area.insert(tk.END, content, tuple(tags))
+            position = match.end()
+
+        if position < len(text):
+            text_area.insert(tk.END, text[position:], base_tags)
+
+    def configure_markdown_tags(self, text_area):
+        """Configure text tags for markdown rendering."""
+        default_font = tkfont.nametofont("TkDefaultFont")
+        body_font = tkfont.Font(font=default_font)
+        bold_font = tkfont.Font(font=default_font)
+        bold_font.configure(weight="bold")
+        italic_font = tkfont.Font(font=default_font)
+        italic_font.configure(slant="italic")
+        h1_font = tkfont.Font(font=default_font)
+        h1_font.configure(size=14, weight="bold")
+        h2_font = tkfont.Font(font=default_font)
+        h2_font.configure(size=12, weight="bold")
+        h3_font = tkfont.Font(font=default_font)
+        h3_font.configure(weight="bold")
+        code_font = tkfont.Font(family="Courier New", size=10)
+
+        text_area.tag_configure("md_body", font=body_font, spacing1=2, spacing3=2)
+        text_area.tag_configure("md_h1", font=h1_font, spacing1=10, spacing3=6)
+        text_area.tag_configure("md_h2", font=h2_font, spacing1=8, spacing3=4)
+        text_area.tag_configure("md_h3", font=h3_font, spacing1=6, spacing3=3)
+        text_area.tag_configure("md_bold", font=bold_font)
+        text_area.tag_configure("md_italic", font=italic_font)
+        text_area.tag_configure(
+            "md_inline_code",
+            font=code_font,
+            background="#f3f4f6",
+            foreground="#b45309",
+        )
+        text_area.tag_configure(
+            "md_code_block",
+            font=code_font,
+            background="#f3f4f6",
+            foreground="#111827",
+            lmargin1=16,
+            lmargin2=16,
+            spacing1=6,
+            spacing3=6,
+        )
+        text_area.tag_configure("md_list_marker", foreground="#6b7280")
+        text_area.tag_configure(
+            "md_quote",
+            foreground="#4b5563",
+            lmargin1=16,
+            lmargin2=16,
+            spacing1=2,
+            spacing3=2,
+        )
+
+    def insert_markdown(self, text_area, message):
+        """Render basic markdown into a Tk text widget."""
+        in_code_block = False
+        code_buffer = []
+
+        for line in message.splitlines():
+            stripped = line.strip()
+
+            if stripped.startswith("```"):
+                if in_code_block:
+                    code_text = "\n".join(code_buffer)
+                    if code_text:
+                        text_area.insert(tk.END, code_text + "\n", ("md_code_block",))
+                    else:
+                        text_area.insert(tk.END, "\n", ("md_code_block",))
+                    code_buffer = []
+                    in_code_block = False
+                else:
+                    in_code_block = True
+                continue
+
+            if in_code_block:
+                code_buffer.append(line)
+                continue
+
+            if not stripped:
+                text_area.insert(tk.END, "\n")
+                continue
+
+            heading_match = re.match(r"^(#{1,3})\s+(.*)$", line)
+            if heading_match:
+                level = len(heading_match.group(1))
+                heading_tag = f"md_h{level}"
+                self.insert_markdown_inline(
+                    text_area, heading_match.group(2), ("md_body", heading_tag)
+                )
+                text_area.insert(tk.END, "\n")
+                continue
+
+            bullet_match = re.match(r"^(\s*)[-*]\s+(.*)$", line)
+            if bullet_match:
+                indent = bullet_match.group(1)
+                content = bullet_match.group(2)
+                if indent:
+                    text_area.insert(tk.END, indent, ("md_body",))
+                text_area.insert(tk.END, "- ", ("md_list_marker",))
+                self.insert_markdown_inline(text_area, content, ("md_body",))
+                text_area.insert(tk.END, "\n")
+                continue
+
+            ordered_match = re.match(r"^(\s*)(\d+)\.\s+(.*)$", line)
+            if ordered_match:
+                indent = ordered_match.group(1)
+                marker = ordered_match.group(2)
+                content = ordered_match.group(3)
+                if indent:
+                    text_area.insert(tk.END, indent, ("md_body",))
+                text_area.insert(tk.END, f"{marker}. ", ("md_list_marker",))
+                self.insert_markdown_inline(text_area, content, ("md_body",))
+                text_area.insert(tk.END, "\n")
+                continue
+
+            quote_match = re.match(r"^>\s?(.*)$", line)
+            if quote_match:
+                self.insert_markdown_inline(
+                    text_area, quote_match.group(1), ("md_body", "md_quote")
+                )
+                text_area.insert(tk.END, "\n")
+                continue
+
+            self.insert_markdown_inline(text_area, line, ("md_body",))
+            text_area.insert(tk.END, "\n")
+
+        if in_code_block and code_buffer:
+            text_area.insert(tk.END, "\n".join(code_buffer) + "\n", ("md_code_block",))
+
+    def show_text_dialog(self, title, message, markdown=False):
+        """Show a modal dialog with copyable read-only text."""
+        dialog_window = tk.Toplevel(self.root)
+        dialog_window.title(title)
+        dialog_window.geometry("700x420")
+        dialog_window.resizable(True, True)
+        dialog_window.transient(self.root)
+        dialog_window.grab_set()
+
+        frame = ttk.Frame(dialog_window, padding="10")
         frame.pack(fill=tk.BOTH, expand=True)
 
-        # Error message in scrolled text (read-only)
         text_area = scrolledtext.ScrolledText(frame, wrap=tk.WORD, height=10)
         text_area.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        text_area.insert(1.0, message)
-        text_area.config(state=tk.DISABLED)  # Make read-only but selectable
 
-        # OK button
-        ttk.Button(frame, text="OK", command=error_window.destroy).pack(side=tk.RIGHT)
+        if markdown:
+            self.configure_markdown_tags(text_area)
+            self.insert_markdown(text_area, message)
+        else:
+            text_area.insert(1.0, message)
+
+        text_area.config(state=tk.DISABLED)
+
+        ttk.Button(frame, text="Close", command=dialog_window.destroy).pack(
+            side=tk.RIGHT
+        )
+
+    def show_error_dialog(self, title, message):
+        """Show a custom error dialog with copyable message"""
+        self.show_text_dialog(title, message)
 
     def run(self):
         """Start the GUI"""
@@ -1995,8 +2288,8 @@ class ConfigWindow:
             row=6, column=0, columnspan=2, sticky=tk.W, padx=5, pady=(2, 10)
         )
 
-        # Prompt Settings (moved from separate tab to API Settings tab)
-        prompt_settings_frame = ttk.LabelFrame(api_frame, text="Prompt Settings")
+        # Commit message prompt settings
+        prompt_settings_frame = ttk.LabelFrame(api_frame, text="Commit Message Prompts")
         prompt_settings_frame.grid(
             row=7,
             column=0,
@@ -2056,6 +2349,34 @@ class ConfigWindow:
 
         # Initial UI update based on selected provider
         self.on_provider_change(None)
+
+        # Code Review Settings Tab
+        review_frame = ttk.Frame(notebook)
+        notebook.add(review_frame, text="Code Review")
+        review_frame.columnconfigure(0, weight=1)
+        review_frame.rowconfigure(1, weight=1)
+
+        ttk.Label(review_frame, text="Code Review System Prompt:").grid(
+            row=0, column=0, sticky=tk.W, padx=10, pady=(10, 0)
+        )
+        self.code_review_prompt_text = scrolledtext.ScrolledText(
+            review_frame, height=18
+        )
+        self.code_review_prompt_text.grid(
+            row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=10, pady=10
+        )
+        self.code_review_prompt_text.insert(
+            1.0, self.parent.config.get("CODE_REVIEW", "system_prompt")
+        )
+        ttk.Label(
+            review_frame,
+            text=(
+                "Used by the AI Code Review button. Reviews staged, unstaged, and "
+                "untracked changes from the selected repository."
+            ),
+            font=("TkDefaultFont", 8),
+            foreground="gray",
+        ).grid(row=2, column=0, sticky=tk.W, padx=10, pady=(0, 10))
 
         # GUI Settings Tab
         gui_frame = ttk.Frame(notebook)
@@ -2124,6 +2445,11 @@ class ConfigWindow:
         )
         self.parent.config.set(
             "PROMPT", "user_prompt", self.user_prompt_text.get(1.0, tk.END).strip()
+        )
+        self.parent.config.set(
+            "CODE_REVIEW",
+            "system_prompt",
+            self.code_review_prompt_text.get(1.0, tk.END).strip(),
         )
         self.parent.config.set(
             "GUI", "always_on_top", str(self.always_on_top_var.get())
