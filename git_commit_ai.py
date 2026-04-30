@@ -582,7 +582,7 @@ Git changes:
         """Setup the GUI window"""
         self.root = tk.Tk()
         self.root.title("AI Git Commit Message Generator")
-        self.root.geometry("700x430")  # Fixed window size
+        self.root.geometry("950x430")  # Fixed window size
         self.root.resizable(False, False)  # Prevent resizing
 
         if self.config.getboolean("GUI", "always_on_top"):
@@ -724,6 +724,48 @@ Git changes:
             row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S)
         )
 
+        # Branch panel on the right side
+        self.root.columnconfigure(1, weight=0)
+        branch_frame = ttk.LabelFrame(self.root, text="Branches", padding="5")
+        branch_frame.grid(
+            row=0, column=1, sticky=(tk.N, tk.S, tk.E, tk.W), padx=(0, 10), pady=10
+        )
+
+        tree_frame = ttk.Frame(branch_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Reduce tree indent from default ~20px to 10px
+        style = ttk.Style()
+        style.configure("Branch.Treeview", indent=10)
+
+        self.branch_tree = ttk.Treeview(
+            tree_frame, show="tree", selectmode="browse",
+            style="Branch.Treeview"
+        )
+        self.branch_tree.column("#0", width=200, minwidth=150)
+        branch_scroll = ttk.Scrollbar(
+            tree_frame, orient=tk.VERTICAL, command=self.branch_tree.yview
+        )
+        self.branch_tree.config(yscrollcommand=branch_scroll.set)
+        self.branch_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        branch_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Configure tags for bold current branch and headers
+        default_font = tkfont.nametofont("TkDefaultFont")
+        branch_bold_font = tkfont.Font(font=default_font)
+        branch_bold_font.configure(weight="bold")
+        branch_header_font = tkfont.Font(font=default_font)
+        branch_header_font.configure(weight="bold")
+
+        self.branch_tree.tag_configure("current", font=branch_bold_font)
+        self.branch_tree.tag_configure("header", font=branch_header_font)
+
+        self.branch_tree.bind("<Double-1>", self.on_branch_double_click)
+
+        ttk.Label(
+            branch_frame, text="Double-click to switch", foreground="gray"
+        ).pack(anchor=tk.W, pady=(5, 0))
+
     def refresh_repositories(self):
         """Refresh the repository dropdown"""
         paths = self.get_repository_paths()
@@ -754,6 +796,7 @@ Git changes:
 
         # Update API status
         self.update_api_status()
+        self.refresh_branch_list()
 
     def on_repo_selected(self, event=None):
         """Handle repository selection"""
@@ -765,6 +808,7 @@ Git changes:
             self.config.set("REPOSITORIES", "current_repo", path)
             self.save_config()
             self.update_repo_info()
+            self.refresh_branch_list()
             if self.changes_dialog and self.changes_dialog.window.winfo_exists():
                 self.changes_dialog.refresh_contents()
             self.reset_commit_action_state()
@@ -878,6 +922,19 @@ Git changes:
         if repo_url:
             return Path(repo_url).stem.replace(".git", "")
         return Path(self.current_repo_path).name
+
+    def get_local_branches(self):
+        """Return a list of local branch names."""
+        result = self.run_git_command(["branch", "--format=%(refname:short)"])
+        return [b.strip() for b in result.stdout.strip().splitlines() if b.strip()]
+
+    def get_remote_branches(self):
+        """Return a list of remote branch names, excluding HEAD pointers."""
+        result = self.run_git_command(
+            ["branch", "-r", "--format=%(refname:short)"]
+        )
+        branches = [b.strip() for b in result.stdout.strip().splitlines() if b.strip()]
+        return [b for b in branches if "/HEAD" not in b]
 
     def has_remote(self, remote_name="origin"):
         """Return whether a named remote exists."""
@@ -1098,6 +1155,7 @@ Git changes:
                 def on_success():
                     self.text_area.delete(1.0, tk.END)
                     self.update_repo_info()
+                    self.refresh_branch_list()
                     if (
                         self.changes_dialog
                         and self.changes_dialog.window.winfo_exists()
@@ -1318,6 +1376,7 @@ Git changes:
         if self.current_repo_path:
             self.update_status("Refreshing repository status...")
             self.update_repo_info()
+            self.refresh_branch_list()
             if self.changes_dialog and self.changes_dialog.window.winfo_exists():
                 self.changes_dialog.refresh_contents()
             self.reset_commit_action_state()
@@ -1336,8 +1395,204 @@ Git changes:
             self._app_had_focus = True
             if self.current_repo_path:
                 self.update_repo_info()
+                self.refresh_branch_list()
                 if self.changes_dialog and self.changes_dialog.window.winfo_exists():
                     self.changes_dialog.refresh_contents()
+
+    def refresh_branch_list(self):
+        """Refresh the branch list panel with local and remote branches in folder hierarchy."""
+        if not hasattr(self, "branch_tree"):
+            return
+
+        for item in self.branch_tree.get_children():
+            self.branch_tree.delete(item)
+
+        if not self.current_repo_path:
+            return
+
+        try:
+            current_branch = self.get_current_branch_name()
+        except Exception:
+            current_branch = ""
+
+        try:
+            local_branches = self.get_local_branches()
+        except Exception:
+            local_branches = []
+
+        try:
+            remote_branches = self.get_remote_branches()
+        except Exception:
+            remote_branches = []
+
+        # Insert local branches in folder hierarchy
+        local_node = self.branch_tree.insert(
+            "", tk.END, text="Local Branches", open=True, tags=("header",)
+        )
+        self._insert_branches_as_tree(local_node, local_branches, current_branch)
+
+        # Insert remote branches in folder hierarchy
+        remote_node = self.branch_tree.insert(
+            "", tk.END, text="Remote Branches", open=True, tags=("header",)
+        )
+        self._insert_branches_as_tree(
+            remote_node, remote_branches, "", open_folders=False
+        )
+
+    def _insert_branches_as_tree(
+        self, parent_node, branches, current_branch, open_folders=True
+    ):
+        """Insert branches under parent_node using '/' as folder separators."""
+        folder_map = {}
+
+        for branch in sorted(branches):
+            parts = branch.split("/")
+            current_parent = parent_node
+
+            # Create intermediate folder nodes for all but the last segment
+            for part in parts[:-1]:
+                key = (current_parent, part)
+                if key not in folder_map:
+                    folder_item = self.branch_tree.insert(
+                        current_parent, tk.END, text=part,
+                        open=open_folders, tags=("folder",)
+                    )
+                    folder_map[key] = folder_item
+                current_parent = folder_map[key]
+
+            # Insert the leaf node (actual branch)
+            leaf_name = parts[-1]
+            tags = ("current",) if branch == current_branch else ()
+            self.branch_tree.insert(
+                current_parent, tk.END, text=leaf_name, tags=tags
+            )
+
+    def _get_branch_root_section(self, item):
+        """Walk up from item to the top-level section node, collecting path parts.
+
+        Returns (section_text, full_branch_name) or (None, None) if the item
+        is a top-level header or folder (non-leaf).
+        """
+        # Ignore non-leaf nodes (folders / headers)
+        if self.branch_tree.get_children(item):
+            return None, None
+
+        parts = []
+        current = item
+        while current:
+            parent = self.branch_tree.parent(current)
+            if not parent:
+                # current is the top-level header
+                section = self.branch_tree.item(current, "text")
+                parts.reverse()
+                return section, "/".join(parts)
+            parts.append(self.branch_tree.item(current, "text"))
+            current = parent
+
+        return None, None
+
+    def on_branch_double_click(self, event):
+        """Handle double-click on a branch to switch to it."""
+        selected = self.branch_tree.selection()
+        if not selected:
+            return
+
+        item = selected[0]
+        section, branch_name = self._get_branch_root_section(item)
+        if not section or not branch_name:
+            return
+
+        try:
+            current = self.get_current_branch_name()
+        except Exception:
+            current = ""
+
+        if section == "Local Branches":
+            if branch_name == current:
+                return
+            self.switch_branch(branch_name)
+        elif section == "Remote Branches":
+            # Strip remote name prefix (e.g. "origin/feat/x" -> "feat/x")
+            local_name = (
+                branch_name.split("/", 1)[1] if "/" in branch_name else branch_name
+            )
+            if local_name == current:
+                return
+            self.switch_branch_from_remote(branch_name, local_name)
+
+    def switch_branch(self, branch_name):
+        """Switch to a local branch."""
+
+        def switch_thread():
+            try:
+                self.update_status(f"Switching to branch '{branch_name}'...")
+                self.run_git_command(["checkout", branch_name])
+
+                def on_success():
+                    self.update_repo_info()
+                    self.refresh_branch_list()
+                    if (
+                        self.changes_dialog
+                        and self.changes_dialog.window.winfo_exists()
+                    ):
+                        self.changes_dialog.refresh_contents()
+                    self.reset_commit_action_state()
+                    self.update_status(f"Switched to branch '{branch_name}'")
+
+                self.root.after(0, on_success)
+
+            except subprocess.CalledProcessError as e:
+                error_msg = self.get_git_error_message(e)
+
+                def on_failure():
+                    self.update_status("Branch switch failed")
+                    self.show_error_dialog("Git Error", error_msg)
+
+                self.root.after(0, on_failure)
+
+        threading.Thread(target=switch_thread, daemon=True).start()
+
+    def switch_branch_from_remote(self, remote_branch, local_name):
+        """Switch to a remote branch, creating a local tracking branch if needed."""
+
+        def switch_thread():
+            try:
+                self.update_status(
+                    f"Switching to '{local_name}' from '{remote_branch}'..."
+                )
+                # Try checking out; git auto-creates tracking branch if unambiguous
+                result = self.run_git_command(
+                    ["checkout", local_name], check=False
+                )
+                if result.returncode != 0:
+                    # Create local tracking branch explicitly
+                    self.run_git_command(
+                        ["checkout", "-b", local_name, remote_branch]
+                    )
+
+                def on_success():
+                    self.update_repo_info()
+                    self.refresh_branch_list()
+                    if (
+                        self.changes_dialog
+                        and self.changes_dialog.window.winfo_exists()
+                    ):
+                        self.changes_dialog.refresh_contents()
+                    self.reset_commit_action_state()
+                    self.update_status(f"Switched to branch '{local_name}'")
+
+                self.root.after(0, on_success)
+
+            except subprocess.CalledProcessError as e:
+                error_msg = self.get_git_error_message(e)
+
+                def on_failure():
+                    self.update_status("Branch switch failed")
+                    self.show_error_dialog("Git Error", error_msg)
+
+                self.root.after(0, on_failure)
+
+        threading.Thread(target=switch_thread, daemon=True).start()
 
     def insert_markdown_inline(self, text_area, text, base_tags=()):
         """Insert a single line of markdown with basic inline formatting."""
