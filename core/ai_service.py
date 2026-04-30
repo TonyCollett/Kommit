@@ -155,12 +155,12 @@ class AIService:
     def generate_root_cause_summary(self, git_info: GitInfo) -> str:
         system_prompt = self.config.get("ROOT_CAUSE", "system_prompt")
         user_prompt = (
-            "Analyse the following staged git changes and produce a root cause summary.\n\n"
+            "Analyse the following git changes and produce a root cause summary.\n\n"
             f"Repository: {git_info.repo_name}\n"
             f"Branch: {git_info.branch_name}\n"
             f"Date: {git_info.date}\n"
             f"Files changed: {git_info.files_changed}\n\n"
-            f"Staged diff:\n{git_info.git_diff}"
+            f"Diff:\n{git_info.git_diff}"
         )
         return self._generate(system_prompt, user_prompt, max_tokens=7000)
 

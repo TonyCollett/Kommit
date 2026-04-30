@@ -11,6 +11,8 @@ from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -475,16 +477,87 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a repository first")
             return
 
+        # Check for staged changes first
+        git_info = self.git.get_git_info()
+        has_staged = git_info.staged_files and any(git_info.staged_files)
+
+        if has_staged:
+            self._run_root_cause(use_staged=True)
+        else:
+            self._show_branch_picker()
+
+    def _show_branch_picker(self):
+        """Show a dialog to select the branch to compare against."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Root Cause Summary – Select Compare Branch")
+        dlg.resize(450, 150)
+        lay = QVBoxLayout(dlg)
+
+        lay.addWidget(QLabel(
+            "No staged changes found.\n"
+            "Select a branch to compare the current branch against:"
+        ))
+
+        branch_combo = QComboBox()
+        branch_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        branch_combo.setMinimumContentsLength(40)
+
+        # Populate with local and remote branches, default branch pre-selected
+        local = self.git.get_local_branches()
+        remote = self.git.get_remote_branches()
+        current = self.git.get_current_branch()
+        default = self.git.get_default_branch()
+
+        all_branches = []
+        for b in local:
+            if b != current:
+                all_branches.append(b)
+        for b in remote:
+            all_branches.append(b)
+
+        branch_combo.addItems(all_branches)
+
+        # Pre-select the default branch (try remote first, then local)
+        preselect = f"origin/{default}" if f"origin/{default}" in all_branches else default
+        idx = branch_combo.findText(preselect)
+        if idx >= 0:
+            branch_combo.setCurrentIndex(idx)
+
+        lay.addWidget(branch_combo)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(dlg.accept)
+        btn_box.rejected.connect(dlg.reject)
+        lay.addWidget(btn_box)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            selected = branch_combo.currentText()
+            if selected:
+                self._run_root_cause(use_staged=False, compare_branch=selected)
+
+    def _run_root_cause(self, use_staged: bool, compare_branch: str = ""):
+        source_label = "staged changes" if use_staged else f"branch diff vs {compare_branch}"
+
         def work():
-            git_info = self.git.get_git_info()
-            if not git_info.staged_files or not any(git_info.staged_files):
-                raise Exception(
-                    "No staged files found. Please stage some files first."
-                )
+            if use_staged:
+                git_info = self.git.get_git_info()
+            else:
+                git_info = self.git.get_branch_diff_info(compare_branch)
+                if not git_info.staged_files or not any(git_info.staged_files):
+                    raise Exception(
+                        f"No differences found between '{compare_branch}' and the current branch."
+                    )
             return self.ai.generate_root_cause_summary(git_info)
 
         def ok(summary_text):
-            self.statusBar().showMessage("Root cause summary generated")
+            self.statusBar().showMessage(
+                f"Root cause summary generated from {source_label}"
+            )
             dlg = TextDialog(
                 self, "Root Cause Summary", summary_text, markdown=True
             )

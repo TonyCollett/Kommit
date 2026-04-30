@@ -31,6 +31,8 @@ class GitService:
             cwd=self.repo_path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=check,
         )
 
@@ -318,4 +320,60 @@ class GitService:
             git_diff="\n".join(diff_sections).strip(),
             date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             files_changed=", ".join(change_descriptions),
+        )
+
+    def get_default_branch(self) -> str:
+        """Detect the default branch (main, master, develop, etc.)."""
+        # Try the remote HEAD symbolic ref first (most reliable)
+        result = self.run(
+            ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"], check=False
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Returns e.g. "origin/main" → strip the remote prefix
+            return result.stdout.strip().split("/", 1)[-1]
+
+        # Fall back to checking common default branch names
+        local_branches = self.get_local_branches()
+        for candidate in ("main", "master", "develop"):
+            if candidate in local_branches:
+                return candidate
+
+        return "main"
+
+    def get_branch_diff_info(self, compare_branch: str) -> GitInfo:
+        """Gather diff of current branch vs *compare_branch* (merge-base)."""
+        branch_name = self.get_current_branch()
+        repo_name = self.get_repo_name()
+
+        # Find the merge base so we only get commits on this branch
+        merge_base_result = self.run(
+            ["merge-base", compare_branch, "HEAD"], check=False
+        )
+        if merge_base_result.returncode != 0 or not merge_base_result.stdout.strip():
+            raise Exception(
+                f"Could not determine merge base between '{compare_branch}' and HEAD. "
+                "Ensure the branch exists locally or has been fetched."
+            )
+        merge_base = merge_base_result.stdout.strip()
+
+        # Files changed on this branch
+        files_result = self.run(["diff", "--name-only", f"{merge_base}..HEAD"])
+        changed_files = (
+            files_result.stdout.strip().split("\n")
+            if files_result.stdout.strip()
+            else []
+        )
+
+        # Full diff
+        diff_result = self.run(["diff", f"{merge_base}..HEAD"])
+        git_diff = diff_result.stdout
+
+        return GitInfo(
+            branch_name=branch_name,
+            repo_name=repo_name,
+            repo_path=self.repo_path,
+            staged_files=changed_files,
+            git_diff=git_diff,
+            date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            files_changed=", ".join(changed_files),
         )
