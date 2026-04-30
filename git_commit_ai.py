@@ -61,7 +61,7 @@ if OLLAMA_AVAILABLE:
 class GitCommitAI:
     def __init__(self):
         self.config_file = Path(__file__).parent / "git_commit_ai_config.ini"
-        self.config = configparser.ConfigParser()
+        self.config = configparser.ConfigParser(interpolation=None)
         self.current_repo_path = None
         self.restart_needed = False
         self.commit_action = "commit"
