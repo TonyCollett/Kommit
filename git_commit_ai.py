@@ -448,7 +448,7 @@ Response requirements:
 Git changes:
 {review_info["git_diff"]}"""
 
-        return self.generate_ai_response(system_prompt, user_prompt, max_tokens=700)
+        return self.generate_ai_response(system_prompt, user_prompt, max_tokens=7000)
 
     def generate_ai_response(self, system_prompt, user_prompt, max_tokens=200):
         """Generate text using the configured AI provider."""
@@ -1502,7 +1502,23 @@ Git changes:
 
         text_area.config(state=tk.DISABLED)
 
-        ttk.Button(frame, text="Close", command=dialog_window.destroy).pack(
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(fill=tk.X)
+
+        def copy_to_clipboard():
+            text_area.config(state=tk.NORMAL)
+            content = text_area.get("1.0", tk.END).rstrip("\n")
+            text_area.config(state=tk.DISABLED)
+            dialog_window.clipboard_clear()
+            dialog_window.clipboard_append(content)
+            original_text = copy_btn.cget("text")
+            copy_btn.config(text="Copied!")
+            dialog_window.after(1500, lambda: copy_btn.config(text=original_text))
+
+        copy_btn = ttk.Button(button_frame, text="Copy to Clipboard", command=copy_to_clipboard)
+        copy_btn.pack(side=tk.LEFT)
+
+        ttk.Button(button_frame, text="Close", command=dialog_window.destroy).pack(
             side=tk.RIGHT
         )
 
