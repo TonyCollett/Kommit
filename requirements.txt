@@ -1,4 +1,7 @@
 # GitCommitAI Requirements
+# PySide6 is required for the GUI
+PySide6>=6.6.0
+
 # These packages are optional but required for specific AI providers
 
 # OpenAI API
