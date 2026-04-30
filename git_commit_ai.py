@@ -66,6 +66,7 @@ class GitCommitAI:
         self.restart_needed = False
         self.commit_action = "commit"
         self.changes_dialog = None
+        self._app_had_focus = True
         self.load_config()
 
         # Initialize API clients
@@ -586,6 +587,10 @@ Git changes:
 
         if self.config.getboolean("GUI", "always_on_top"):
             self.root.attributes("-topmost", True)
+
+        # Auto-refresh git status when the window regains focus
+        self.root.bind("<FocusIn>", self._on_focus_in)
+        self.root.bind("<FocusOut>", self._on_focus_out)
 
         # Create main frame
         main_frame = ttk.Frame(self.root, padding="10")
@@ -1319,6 +1324,20 @@ Git changes:
             self.update_status("Repository status refreshed")
         else:
             self.update_status("No repository selected")
+
+    def _on_focus_out(self, event):
+        """Track when the application loses focus."""
+        if event.widget is self.root:
+            self._app_had_focus = False
+
+    def _on_focus_in(self, event):
+        """Refresh git status once when the application regains focus."""
+        if event.widget is self.root and not self._app_had_focus:
+            self._app_had_focus = True
+            if self.current_repo_path:
+                self.update_repo_info()
+                if self.changes_dialog and self.changes_dialog.window.winfo_exists():
+                    self.changes_dialog.refresh_contents()
 
     def insert_markdown_inline(self, text_area, text, base_tags=()):
         """Insert a single line of markdown with basic inline formatting."""
