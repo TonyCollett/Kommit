@@ -1,11 +1,11 @@
-# GitCommitAI
+# Kommit
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-An AI-powered Git Commit Message Generator with a PySide6 desktop GUI. Supports OpenAI, Anthropic Claude, Google Gemini, and Ollama for commit message generation, AI code review, and root cause analysis.
+An AI-powered Git assistant with a PySide6 desktop GUI. Supports OpenAI, Anthropic Claude, Google Gemini, and Ollama for commit message generation, AI code review, and root cause analysis.
 
-**Note:** This tool is designed to be used alongside other Git clients or the Git CLI. It does not replace a full Git client but provides enhanced commit message generation and code review capabilities.
+**Note:** Kommit is designed to be used alongside other Git clients or the Git CLI. It does not replace a full Git client but provides enhanced commit message generation and code review capabilities.
 
 ## Features
 

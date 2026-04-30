@@ -1,4 +1,4 @@
-# GitCommitAI Requirements
+# Kommit Requirements
 # PySide6 is required for the GUI
 PySide6>=6.6.0
 

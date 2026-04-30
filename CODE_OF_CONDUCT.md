@@ -32,7 +32,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by opening an issue on the [GitHub repository](https://github.com/TonyCollett/AI_Commit_Gen/issues).
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by opening an issue on the [GitHub repository](https://github.com/TonyCollett/Kommit/issues).
 
 All complaints will be reviewed and investigated promptly and fairly.
 

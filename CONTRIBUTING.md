@@ -1,6 +1,6 @@
-# Contributing to GitCommitAI
+# Contributing to Kommit
 
-Thank you for your interest in contributing to GitCommitAI! We welcome contributions from the community.
+Thank you for your interest in contributing to Kommit! We welcome contributions from the community.
 
 ## How to Contribute
 

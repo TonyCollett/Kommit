@@ -3,9 +3,9 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gitcommitai"
+name = "kommit"
 version = "2.0.0"
-description = "AI-powered Git Commit Message Generator"
+description = "AI-powered Git assistant for commit messages, code review, and root cause analysis"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     {name = "TonyCollett"},
 ]
-keywords = ["git", "commit", "ai", "openai", "anthropic", "gemini"]
+keywords = ["git", "commit", "ai", "openai", "anthropic", "gemini", "ollama", "code-review"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -41,7 +41,7 @@ dev = [
 ]
 
 [project.scripts]
-gitcommitai = "main:main"
+kommit = "main:main"
 
 [tool.setuptools.packages.find]
 include = ["core*", "ui*"]

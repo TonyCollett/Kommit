@@ -62,7 +62,7 @@ class ConfigManager:
 
     def __init__(self, config_path: Optional[Path] = None):
         if config_path is None:
-            config_path = Path(__file__).resolve().parent.parent / "git_commit_ai_config.ini"
+            config_path = Path(__file__).resolve().parent.parent / "kommit_config.ini"
         self.config_file = config_path
         self.config = configparser.ConfigParser(interpolation=None)
         self.load_config()

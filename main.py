@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI-powered Git Commit Message Generator – PySide6 Edition
+Kommit – AI-powered Git assistant
 Supports OpenAI, Anthropic Claude, Google Gemini, and Ollama APIs
 """
 
@@ -15,12 +15,12 @@ from ui.main_window import MainWindow
 
 def main():
     app_root = Path(__file__).resolve().parent
-    config_path = app_root / "git_commit_ai_config.ini"
+    config_path = app_root / "kommit_config.ini"
 
     config = ConfigManager(config_path)
 
     qt_app = QApplication(sys.argv)
-    qt_app.setApplicationName("AI Git Commit Message Generator")
+    qt_app.setApplicationName("Kommit")
 
     window = MainWindow(config)
     window.show()

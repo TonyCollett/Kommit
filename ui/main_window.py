@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
     # ── UI construction ──────────────────────────────────────────────
 
     def _setup_ui(self):
-        self.setWindowTitle("AI Git Commit Message Generator")
+        self.setWindowTitle("Kommit - AI Powered Git Generator")
         self.resize(1000, 520)
         self.setMinimumSize(820, 420)
 

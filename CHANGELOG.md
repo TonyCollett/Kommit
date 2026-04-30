@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.0] - 2025-05-01
 
 ### Added
+- Project renamed to **Kommit**
 - Complete rewrite using PySide6 desktop GUI (replacing the previous single-file implementation)
 - Modular codebase with `core/` and `ui/` packages
 - Ollama provider support for local AI models
@@ -26,9 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-refresh on application focus regain
 
 ### Changed
+- Project renamed from GitCommitAI to Kommit
 - Entry point changed from `git_commit_ai.py` to `main.py`
+- Configuration file renamed from `git_commit_ai_config.ini` to `kommit_config.ini`
 - Minimum Python version raised to 3.9+
-- Configuration now uses an INI file (`git_commit_ai_config.ini`) managed by `ConfigManager`
 
 ### Removed
 - Single-file architecture (old implementation preserved in `old/` for reference)
@@ -36,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2024-01-08
 
 ### Added
-- Initial release of GitCommitAI
+- Initial release (as GitCommitAI)
 - Support for OpenAI, Anthropic Claude, and Google Gemini APIs
 - GUI interface for commit message generation
 - Multi-repository management
