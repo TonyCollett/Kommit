@@ -80,6 +80,11 @@ class GitService:
         branches = [b.strip() for b in result.stdout.strip().splitlines() if b.strip()]
         return [b for b in branches if "/HEAD" not in b]
 
+    def get_remote_url(self, remote_name: str = "origin") -> str:
+        """Return the remote URL for *remote_name*, or empty string if none."""
+        result = self.run(["remote", "get-url", remote_name], check=False)
+        return result.stdout.strip() if result.returncode == 0 else ""
+
     def has_remote(self, remote_name: str = "origin") -> bool:
         result = self.run(["remote", "get-url", remote_name], check=False)
         return result.returncode == 0

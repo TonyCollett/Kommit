@@ -2,6 +2,7 @@
 
 import os
 import platform
+import re
 import subprocess
 from pathlib import Path
 
@@ -109,12 +110,19 @@ class MainWindow(QMainWindow):
         # Buttons row
         btn_row = QHBoxLayout()
 
-        review_btn = QPushButton("AI Code Review")
-        review_btn.clicked.connect(self._review_clicked)
-        btn_row.addWidget(review_btn)
-
-        generate_btn = QPushButton("Generate Commit Message")
-        generate_btn.clicked.connect(self._generate_clicked)
+        # Generate-actions drop-down
+        generate_btn = QPushButton("Generate Actions")
+        generate_menu = QMenu(self)
+        generate_menu.addAction(
+            "Generate Commit Message", self._generate_clicked
+        )
+        generate_menu.addAction(
+            "AI Code Review", self._review_clicked
+        )
+        generate_menu.addAction(
+            "Root Cause Summary", self._root_cause_clicked
+        )
+        generate_btn.setMenu(generate_menu)
         btn_row.addWidget(generate_btn)
 
         config_btn = QPushButton("Configure")
@@ -140,6 +148,7 @@ class MainWindow(QMainWindow):
         repo_menu = QMenu(self)
         repo_menu.addAction("Open in Terminal", self._open_terminal)
         repo_menu.addAction("Open in Explorer", self._open_explorer)
+        repo_menu.addAction("Raise Pull Request", self._raise_pull_request)
         repo_act_btn.setMenu(repo_menu)
         btn_row.addWidget(repo_act_btn)
 
@@ -461,6 +470,33 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Generating AI code review...")
         self._run_worker(work, ok, fail)
 
+    def _root_cause_clicked(self):
+        if not self.current_repo_path:
+            QMessageBox.warning(self, "Warning", "Please select a repository first")
+            return
+
+        def work():
+            git_info = self.git.get_git_info()
+            if not git_info.staged_files or not any(git_info.staged_files):
+                raise Exception(
+                    "No staged files found. Please stage some files first."
+                )
+            return self.ai.generate_root_cause_summary(git_info)
+
+        def ok(summary_text):
+            self.statusBar().showMessage("Root cause summary generated")
+            dlg = TextDialog(
+                self, "Root Cause Summary", summary_text, markdown=True
+            )
+            dlg.exec()
+
+        def fail(msg):
+            self.statusBar().showMessage("Error generating root cause summary")
+            self._show_error("Error", msg)
+
+        self.statusBar().showMessage("Generating root cause summary...")
+        self._run_worker(work, ok, fail)
+
     def _configure_clicked(self):
         from ui.config_dialog import ConfigDialog
 
@@ -598,6 +634,39 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "No repository selected")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(self.current_repo_path))
+
+    def _raise_pull_request(self):
+        if not self.current_repo_path:
+            QMessageBox.warning(self, "Warning", "No repository selected")
+            return
+        git = self.git
+        remote_url = git.get_remote_url()
+        if not remote_url:
+            QMessageBox.warning(
+                self, "Warning", "No remote URL found for this repository."
+            )
+            return
+
+        # Convert remote URL to a GitHub HTTPS base URL.
+        # Handles HTTPS (https://github.com/owner/repo.git)
+        # and SSH  (git@github.com:owner/repo.git) formats.
+        m = re.match(r"git@([^:]+):(.+?)(?:\.git)?$", remote_url)
+        if m:
+            host, path = m.group(1), m.group(2)
+            base_url = f"https://{host}/{path}"
+        else:
+            base_url = re.sub(r"\.git$", "", remote_url)
+
+        try:
+            branch = git.get_current_branch()
+        except Exception:
+            QMessageBox.warning(
+                self, "Warning", "Could not determine the current branch."
+            )
+            return
+
+        pr_url = f"{base_url}/compare/{branch}?expand=1"
+        QDesktopServices.openUrl(QUrl(pr_url))
 
     # ── Package checking ─────────────────────────────────────────────
 

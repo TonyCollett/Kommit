@@ -52,6 +52,9 @@ class ConfigManager:
                 "If no significant issues are present, say so clearly."
             ),
         },
+        "ROOT_CAUSE": {
+            "system_prompt": "Generate a root cause summary from this code",
+        },
         "GUI": {
             "always_on_top": "true",
         },

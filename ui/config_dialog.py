@@ -55,6 +55,7 @@ class ConfigDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._build_api_tab(), "API Settings")
         tabs.addTab(self._build_review_tab(), "Code Review")
+        tabs.addTab(self._build_root_cause_tab(), "Root Cause")
         tabs.addTab(self._build_gui_tab(), "GUI Settings")
         layout.addWidget(tabs, stretch=1)
 
@@ -183,6 +184,25 @@ class ConfigDialog(QDialog):
         lay.addWidget(hint)
         return page
 
+    # ── Root Cause tab ───────────────────────────────────────────────
+
+    def _build_root_cause_tab(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(QLabel("Root Cause Summary System Prompt:"))
+        self.root_cause_prompt = QPlainTextEdit(
+            self.config.get("ROOT_CAUSE", "system_prompt")
+        )
+        lay.addWidget(self.root_cause_prompt, stretch=1)
+        hint = QLabel(
+            "Used by the Root Cause Summary action in the Generate Actions menu.  "
+            "Analyses the staged changes and produces a root cause summary."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: gray; font-size: 11px;")
+        lay.addWidget(hint)
+        return page
+
     # ── GUI tab ──────────────────────────────────────────────────────
 
     def _build_gui_tab(self) -> QWidget:
@@ -301,6 +321,11 @@ class ConfigDialog(QDialog):
             "CODE_REVIEW",
             "system_prompt",
             self.review_prompt.toPlainText().strip(),
+        )
+        self.config.set(
+            "ROOT_CAUSE",
+            "system_prompt",
+            self.root_cause_prompt.toPlainText().strip(),
         )
         self.config.set("GUI", "always_on_top", str(self.on_top_cb.isChecked()))
         self.config.save_config()
