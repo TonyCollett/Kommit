@@ -19,7 +19,6 @@ jobs:
               --windowed
               --onefile
               --icon "ui/assets/favicon.ico"
-              --add-data "kommit_config.ini;."
               --add-data "ui/assets;ui/assets"
               main.py
             output_path: dist/Kommit.exe
@@ -30,7 +29,6 @@ jobs:
               --name Kommit
               --windowed
               --onefile
-              --add-data "kommit_config.ini:."
               --add-data "ui/assets:ui/assets"
               main.py
             output_path: dist/Kommit
@@ -43,7 +41,6 @@ jobs:
               --windowed
               --onefile
               --icon "ui/assets/icon.icns"
-              --add-data "kommit_config.ini:."
               --add-data "ui/assets:ui/assets"
               main.py
             output_path: dist/Kommit
