@@ -16,10 +16,13 @@ from ui.main_window import MainWindow
 
 def main():
     if getattr(sys, "frozen", False):
-        # Running as a PyInstaller bundle
-        app_root = Path(sys._MEIPASS)
+        # Bundled assets (icons, etc.) are extracted here
+        bundle_dir = Path(sys._MEIPASS)
+        # Config lives next to the executable so user settings persist
+        app_root = Path(sys.executable).resolve().parent
     else:
-        app_root = Path(__file__).resolve().parent
+        bundle_dir = Path(__file__).resolve().parent
+        app_root = bundle_dir
 
     config_path = app_root / "kommit_config.ini"
 
@@ -28,7 +31,7 @@ def main():
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("Kommit")
 
-    icon_path = app_root / "ui" / "assets" / "icon-512.png"
+    icon_path = bundle_dir / "ui" / "assets" / "icon-512.png"
     if icon_path.exists():
         qt_app.setWindowIcon(QIcon(str(icon_path)))
 
