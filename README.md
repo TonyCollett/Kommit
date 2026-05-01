@@ -7,6 +7,16 @@ An AI-powered Git assistant with a PySide6 desktop GUI. Supports OpenAI, Anthrop
 
 **Note:** Kommit is designed to be used alongside other Git clients or the Git CLI. It does not replace a full Git client but provides enhanced commit message generation and code review capabilities.
 
+![Kommit Main Window](wiki-assets/20260501-0924AM-python-3556.png)
+
+<p>
+  <a href="wiki-assets/20260501-0926AM-python-3561.png"><img src="wiki-assets/20260501-0926AM-python-3561.png" alt="Changes &amp; Diff Viewer" width="200"></a>
+  <a href="wiki-assets/20260501-0925AM-python-3559.png"><img src="wiki-assets/20260501-0925AM-python-3559.png" alt="Configuration" width="200"></a>
+  <a href="wiki-assets/20260501-0925AM-python-3560.png"><img src="wiki-assets/20260501-0925AM-python-3560.png" alt="Repository Manager" width="200"></a>
+  <a href="wiki-assets/20260501-0924AM-python-3557.png"><img src="wiki-assets/20260501-0924AM-python-3557.png" alt="AI Code Review" width="200"></a>
+  <a href="wiki-assets/20260501-0925AM-python-3558.png"><img src="wiki-assets/20260501-0925AM-python-3558.png" alt="Root Cause Summary" width="200"></a>
+</p>
+
 ## Features
 
 - Generate meaningful commit messages from staged changes using AI
