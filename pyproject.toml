@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kommit"
-version = "2.0.0"
+version = "2.0.1"
 description = "AI-powered Git assistant for commit messages, code review, and root cause analysis"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -48,4 +48,4 @@ include = ["core*", "ui*"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "2.0.1"
