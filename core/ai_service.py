@@ -143,6 +143,16 @@ class AIService:
             f"Branch: {review_info.branch_name}\n"
             f"Date: {review_info.date}\n"
             f"Changed files: {review_info.files_changed}\n\n"
+        )
+
+        # Add additional context if provided
+        if review_info.additional_context:
+            user_prompt += (
+                "Additional Context (provided by user):\n"
+                f"{review_info.additional_context}\n\n"
+            )
+
+        user_prompt += (
             "Response requirements:\n"
             "1. Start with a one-line overall assessment.\n"
             "2. List findings in priority order with file references when possible.\n"

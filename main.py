@@ -15,6 +15,10 @@ from ui.main_window import MainWindow
 
 
 def main():
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Kommit.App")
+
     if getattr(sys, "frozen", False):
         # Bundled assets (icons, etc.) are extracted here
         bundle_dir = Path(sys._MEIPASS)

@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from core.ai_service import AIService
 from core.config_manager import ConfigManager
 from core.git_service import GitService
+from ui.widgets.context_dialog import ContextDialog
 from ui.widgets.text_dialog import TextDialog
 from ui.widgets.worker import WorkerThread
 
@@ -452,12 +453,28 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a repository first")
             return
 
+        # Get additional context from user
+        additional_context = ContextDialog.get_context_from_user(self)
+        if additional_context is None:
+            # User cancelled the dialog, ask if they want to proceed without context
+            result = QMessageBox.question(
+                self,
+                "Proceed without context?",
+                "No additional context provided. Continue with code review?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if result == QMessageBox.StandardButton.No:
+                return
+            additional_context = ""
+
         def work():
             review_info = self.git.get_review_info()
             if not review_info.status_entries:
                 raise Exception(
                     "No code changes found. Make some changes before running a review."
                 )
+            # Add the additional context to the review info
+            review_info.additional_context = additional_context
             return self.ai.generate_code_review(review_info)
 
         def ok(review_text):

@@ -43,3 +43,4 @@ class ReviewInfo:
     git_diff: str
     date: str
     files_changed: str
+    additional_context: str = ""
