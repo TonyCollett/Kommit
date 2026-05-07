@@ -9,6 +9,9 @@ from typing import List, Optional, Tuple
 
 from core.models import GitInfo, ReviewInfo, StatusEntry
 
+# Windows flag to prevent console window from appearing
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
 
 class GitService:
     """Encapsulates all git CLI interactions for a single repository."""
@@ -34,6 +37,7 @@ class GitService:
             encoding="utf-8",
             errors="replace",
             check=check,
+            creationflags=_SUBPROCESS_FLAGS,
         )
 
     @staticmethod
@@ -43,7 +47,8 @@ class GitService:
             if not os.path.exists(path):
                 return False
             result = subprocess.run(
-                ["git", "status"], cwd=path, capture_output=True, text=True
+                ["git", "status"], cwd=path, capture_output=True, text=True,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             return result.returncode == 0
         except Exception:

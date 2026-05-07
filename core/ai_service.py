@@ -1,5 +1,6 @@
 """AI provider integration for commit message and code review generation."""
 
+import os
 import re
 import subprocess
 import sys
@@ -7,6 +8,9 @@ from typing import List, Optional, Tuple
 
 from core.config_manager import ConfigManager
 from core.models import GitInfo, ReviewInfo
+
+# Windows flag to prevent console window from appearing
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 def _is_package_installed(package_name: str) -> bool:
@@ -112,7 +116,10 @@ class AIService:
     @staticmethod
     def install_package(pip_name: str):
         """Install a Python package via pip."""
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", pip_name],
+            creationflags=_SUBPROCESS_FLAGS,
+        )
 
     # ── Placeholder replacement ──────────────────────────────────────
 
