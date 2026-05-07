@@ -1,14 +1,79 @@
 name: Build & Release
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
 jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump version in pyproject.toml
+        run: |
+          python -c "
+          import re
+          with open('pyproject.toml', 'r') as f:
+              content = f.read()
+          match = re.search(r'version\s*=\s*\"(.+?)\"', content)
+          version = match.group(1)
+          major, minor, patch = map(int, version.split('.'))
+          bump = '${{ github.event.inputs.version_bump }}'
+          if bump == 'major':
+              major += 1
+              minor = 0
+              patch = 0
+          elif bump == 'minor':
+              minor += 1
+              patch = 0
+          else:
+              patch += 1
+          new_version = f'{major}.{minor}.{patch}'
+          new_content = re.sub(r'version\s*=\s*\".+?\"', f'version = \"{new_version}\"', content)
+          with open('pyproject.toml', 'w') as f:
+              f.write(new_content)
+          print(f'Version bumped to {new_version}')
+          "
+
+      - name: Commit and push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore: bump version [skip ci]"
+          git push
+
+      - name: Get new version
+        id: get_version
+        run: |
+          VERSION=$(python -c "
+          import re
+          with open('pyproject.toml') as f:
+              match = re.search(r'version\s*=\s*\"(.+?)\"', f.read())
+              print(match.group(1))
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: [bump-version]
     strategy:
       matrix:
         include:
@@ -100,24 +165,19 @@ jobs:
           path: ${{ matrix.output_path }}
 
   release:
-    needs: build
+    needs: [build, bump-version]
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract version from pyproject.toml
+      - name: Get version
         id: version
         run: |
-          VERSION=$(python -c "
-          import re
-          with open('pyproject.toml') as f:
-              match = re.search(r'version\s*=\s*\"(.+?)\"', f.read())
-              print(match.group(1))
-          ")
+          VERSION="${{ needs.bump-version.outputs.version }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Detected version: $VERSION"
+          echo "Version: $VERSION"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
